@@ -15,6 +15,7 @@ const num = (name, label, x = {}) => ({ name, label, type: 'number', ...x });
 const cur = (name, label, x = {}) => ({ name, label, type: 'currency', ...x });
 const date = (name, label, x = {}) => ({ name, label, type: 'date', default: todayISO, ...x });
 const link = (name, label, master, x = {}) => ({ name, label, type: 'link', master, ...x });
+const sel = (name, label, options, x = {}) => ({ name, label, type: 'select', options, ...x });
 const ro = (f) => ({ ...f, readOnly: true });
 const sum = (f) => ({ ...f, readOnly: true, summary: true, default: () => 0 });
 const status = { field: 'is_completed', label: 'Status', type: 'doc-status' };
@@ -29,46 +30,102 @@ const simple = (doctype, nameField, title, x = {}) => ({
 });
 const contact = [t('gstin', 'GSTIN'), t('state', 'State'), t('phone', 'Phone'), { name: 'address', label: 'Address', type: 'textarea' }];
 const contactCols = [col('name', 'Name'), col('gstin', 'GSTIN'), col('state', 'State'), col('phone', 'Phone')];
+const customerCols = [col('name', 'Name'), col('gstin', 'GSTIN'), col('city', 'City'), col('phone', 'Phone'), col('total_outstanding', 'Outstanding', 'currency')];
 
 const uom = { ...simple('UOM', 'uom_name', 'UOM'), plural: 'Units of measure' };
 const process = { ...simple('Process', 'process_name', 'Process'), plural: 'Processes' };
 const category = { ...simple('Category', 'category_name', 'Category'), plural: 'Categories' };
 const charge = { ...simple('Charge', 'charge_name', 'Charge'), subtitle: 'Labour, electricity and other Stage 3 charges.' };
 const vendor = { doctype: 'Vendor', master: true, title: 'Vendor', fields: [t('vendor_name', 'Vendor name', { required: true, readOnlyOnEdit: true }), ...contact], columns: contactCols, subtitle: 'State decides CGST + SGST or IGST on purchases.' };
-const customer = { doctype: 'Customer', master: true, title: 'Customer', fields: [t('customer_name', 'Customer name', { required: true, readOnlyOnEdit: true }), ...contact], columns: contactCols };
+const customer = {
+  doctype: 'Customer',
+  master: true,
+  title: 'Customer',
+  fields: [
+    t('customer_name', 'Customer name', { required: true, readOnlyOnEdit: true }),
+    t('gstin', 'GSTIN'),
+    t('pan', 'PAN'),
+    t('phone', 'Phone'),
+    t('mobile', 'Mobile'),
+    t('email', 'Email'),
+    t('city', 'City'),
+    t('state', 'State'),
+    { name: 'address', label: 'Address', type: 'textarea' },
+    ro(cur('total_outstanding', 'Total Outstanding')),
+  ],
+  columns: customerCols,
+};
+
 
 // ---- Product (with its BOM inside) -----------------------------------------
 // The BOM is no longer a separate screen: it is saved as the product's own BOM document.
 const raw = (r) => r.product_type === 'Raw';
 const bomRow = (extra = []) => [link('process', 'Process', 'Process'), link('product', 'Raw material', 'Product', { filter: raw, required: true, minWidth: 220 }), num('per_unit_utilization', 'Per-unit utilization', { positive: true }), ...extra];
 const BOM_TABLES = ['stage1_items', 'stage2_items', 'stage3_charges'];
-const steps = (v) => (v.product_type && v.product_type !== 'Raw' ? Number(v.total_steps) || 0 : 0);
+const steps = (v) => (v?.product_type && v.product_type !== 'Raw' ? Number(v.total_steps) || 3 : 0);
 
 const product = {
-  doctype: 'Product', master: true, title: 'Product', tableTabs: true, tableTabsEmpty: '', subtitle: 'Raw, semi-finished and finished products. Semi / Finished products carry their BOM here.',
+  doctype: 'Product', master: true, title: 'Product', tableTabs: true,
+  tableTabsEmpty: 'Raw products do not use a BOM. Select Product type "Semi" or "Finished" to configure BOM stages 1, 2, and 3.',
+  subtitle: 'Raw, semi-finished and finished products. Semi / Finished products carry their BOM stages here.',
   fields: [
     t('product_name', 'Product name', { required: true }),
     t('product_code', 'Product code', { required: true, readOnlyOnEdit: true }),
+    sel('product_type', 'Product type', ['Raw', 'Semi', 'Finished'], { required: true, default: () => 'Raw' }),
     link('uom', 'UOM', 'UOM', { required: true }),
     link('category', 'Category', 'Category'),
-    num('total_steps', 'Total steps (1 to 3)', { showIf: (v) => v.product_type && v.product_type !== 'Raw' }),
+    sel('total_steps', 'BOM Stages (Total steps)', [
+      { value: 1, label: '1 Stage (Stage 1 only)' },
+      { value: 2, label: '2 Stages (Stage 1 & 2)' },
+      { value: 3, label: '3 Stages (Stage 1, 2 & 3)' },
+    ], {
+      showIf: (v) => v.product_type && v.product_type !== 'Raw',
+      default: () => 3,
+    }),
     num('low_stock_limit', 'Low stock limit'),
     num('high_stock_limit', 'High stock limit'),
     { name: 'is_scrap', label: 'Scrap / wastage product', type: 'check' },
     { name: 'allow_negative_stock', label: 'Allow negative stock', type: 'check' },
   ],
   tables: [
-    { name: 'stage1_items', label: 'BOM · Stage 1 raw materials', fields: bomRow([link('wastage_product', 'Wastage product', 'Product', { filter: (r) => !!r.is_scrap })]), showIf: (v) => steps(v) >= 1, newRow: () => ({ per_unit_utilization: '' }) },
-    { name: 'stage2_items', label: 'BOM · Stage 2 raw materials', fields: bomRow(), showIf: (v) => steps(v) >= 2, newRow: () => ({ per_unit_utilization: '' }) },
-    { name: 'stage3_charges', label: 'BOM · Stage 3 charges', fields: [link('charge', 'Charge', 'Charge', { required: true }), cur('per_unit_price', 'Price per unit'), { name: 'in_tooling_base', label: 'In tooling base', type: 'check' }], showIf: (v) => steps(v) >= 3, newRow: () => ({ per_unit_price: '', in_tooling_base: 0 }) },
+    {
+      name: 'stage1_items',
+      label: 'BOM · Stage 1 (Raw materials & Scrap)',
+      empty: 'Add Stage 1 raw materials and optional scrap/wastage product.',
+      fields: bomRow([link('wastage_product', 'Wastage scrap product', 'Product', { filter: (r) => !!r.is_scrap, minWidth: 200 })]),
+      showIf: (v) => steps(v) >= 1,
+      newRow: () => ({ per_unit_utilization: '' }),
+    },
+    {
+      name: 'stage2_items',
+      label: 'BOM · Stage 2 (Secondary raw materials)',
+      empty: 'Add Stage 2 raw materials.',
+      fields: bomRow(),
+      showIf: (v) => steps(v) >= 2,
+      newRow: () => ({ per_unit_utilization: '' }),
+    },
+    {
+      name: 'stage3_charges',
+      label: 'BOM · Stage 3 (Charges & Overhead)',
+      empty: 'Add Stage 3 charges (e.g. Labour, Electricity, Finishing).',
+      fields: [
+        link('charge', 'Charge', 'Charge', { required: true, minWidth: 200 }),
+        cur('per_unit_price', 'Price per unit', { positive: true }),
+        { name: 'in_tooling_base', label: 'In tooling base', type: 'check' },
+      ],
+      showIf: (v) => steps(v) >= 3,
+      newRow: () => ({ per_unit_price: '', in_tooling_base: 0 }),
+    },
   ],
   validate: (v) => {
-    const s = steps(v);
     const e = {};
-    if (v.product_type !== 'Raw' && ![1, 2, 3].includes(Number(v.total_steps))) e.total_steps = 'Enter 1, 2 or 3';
-    if (s >= 1 && !v.stage1_items?.length) e.stage1_items = 'Add Stage 1 BOM rows';
-    if (s >= 2 && !v.stage2_items?.length) e.stage2_items = 'Add Stage 2 BOM rows';
-    if (s >= 3 && !v.stage3_charges?.length) e.stage3_charges = 'Add Stage 3 charges';
+    if (v.product_type && v.product_type !== 'Raw') {
+      const numSteps = Number(v.total_steps) || 3;
+      if (![1, 2, 3].includes(numSteps)) e.total_steps = 'Select 1, 2 or 3 stages';
+      if (numSteps >= 1 && !v.stage1_items?.length) e.stage1_items = 'Add Stage 1 BOM rows';
+      if (numSteps >= 2 && !v.stage2_items?.length) e.stage2_items = 'Add Stage 2 BOM rows';
+      if (numSteps >= 3 && !v.stage3_charges?.length) e.stage3_charges = 'Add Stage 3 charges';
+    }
     return e;
   },
   // saved as a second document (BOM, named after the product) right after the Product
@@ -76,19 +133,45 @@ const product = {
     doctype: 'BOM',
     tables: BOM_TABLES,
     async load(row) {
-      const b = await db.BOM.get(row.name);
+      let b = await db.BOM.get(row.name);
+      if (!b) {
+        try {
+          b = await getDoc('BOM', row.name);
+        } catch (_) {
+          b = null;
+        }
+      }
       return b ? Object.fromEntries(BOM_TABLES.map((k) => [k, b[k] || []])) : {};
     },
     async save(saved, tables) {
-      const exists = await db.BOM.get(saved.name);
+      let exists = !!(await db.BOM.get(saved.name));
+      if (!exists) {
+        try {
+          exists = !!(await getDoc('BOM', saved.name));
+        } catch (_) {
+          exists = false;
+        }
+      }
       if (saved.product_type === 'Raw') { if (exists) await deleteDoc('BOM', saved.name); return; }
-      const s = Number(saved.total_steps) || 0;
-      const body = { product: saved.name, stage1_items: tables.stage1_items || [], stage2_items: s >= 2 ? tables.stage2_items || [] : [], stage3_charges: s >= 3 ? tables.stage3_charges || [] : [] };
+      const s = Number(saved.total_steps) || 3;
+      const body = {
+        product: saved.name,
+        stage1_items: tables.stage1_items || [],
+        stage2_items: s >= 2 ? tables.stage2_items || [] : [],
+        stage3_charges: s >= 3 ? tables.stage3_charges || [] : [],
+      };
       if (exists) await updateDoc('BOM', saved.name, body);
       else await insertDoc('BOM', body);
     },
   },
-  columns: [col('product_code', 'Code'), col('product_name', 'Name'), col('uom', 'UOM'), col('category', 'Category'), col('total_steps', 'Steps', 'number')],
+  columns: [
+    col('product_code', 'Code'),
+    col('product_name', 'Name'),
+    col('product_type', 'Type'),
+    col('uom', 'UOM'),
+    col('category', 'Category'),
+    col('total_steps', 'Steps', 'number'),
+  ],
 };
 
 // ---- Purchase --------------------------------------------------------------
@@ -317,5 +400,5 @@ const inventory = {
 export const RESOURCES = {
   '/uom': uom, '/product': product, '/category': category, '/process': process, '/purchase': purchase,
   '/quotation': quotation, '/sales-order': salesOrder, '/vendor': vendor, '/customer': customer,
-  '/charge': charge, '/inventory': inventory, '/dispatch': dispatch,
+  '/charge': charge, '/dispatch': dispatch,
 };

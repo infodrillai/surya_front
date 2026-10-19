@@ -1,3 +1,4 @@
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
 import CategoryIcon from '@mui/icons-material/CategoryOutlined';
 import DescriptionIcon from '@mui/icons-material/DescriptionOutlined';
 import FactoryIcon from '@mui/icons-material/PrecisionManufacturingOutlined';
@@ -35,9 +36,11 @@ export const MENU = [
     items: [
       { label: 'Vendor', path: '/vendor', icon: HandshakeIcon, roles: [STORE, PROD] },
       { label: 'Customer', path: '/customer', icon: PeopleIcon, roles: [SALES, STORE] },
+      { label: 'Outstanding', path: '/customer-outstanding', icon: AccountBalanceWalletIcon, roles: [SALES, STORE] },
       { label: 'Charge', path: '/charge', icon: DescriptionIcon, roles: [PROD] },
       { label: 'Inventory', path: '/inventory', icon: WarehouseIcon, roles: [STORE, PROD] },
       { label: 'Dispatch', path: '/dispatch', icon: LocalShippingIcon, roles: [STORE, SALES] },
     ],
   },
 ];
+

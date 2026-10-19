@@ -75,10 +75,22 @@ export default function Field({ f, name, control, disabled }) {
             multiline={f.type === 'textarea'}
             minRows={f.type === 'textarea' ? 2 : undefined}
             type={['number', 'currency', 'percent'].includes(f.type) ? 'number' : f.type === 'date' ? 'date' : 'text'}
-            slotProps={{ inputLabel: f.type === 'date' ? { shrink: true } : undefined, htmlInput: { step: 'any', min: 0 } }}
+            slotProps={{
+              inputLabel: f.type === 'date' ? { shrink: true } : undefined,
+              htmlInput: ['number', 'currency', 'percent'].includes(f.type) ? { step: 'any', min: 0 } : undefined,
+            }}
             sx={{ minWidth: f.minWidth ?? 110 }}
           >
-            {f.type === 'select' && f.options.map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}
+            {f.type === 'select' &&
+              f.options.map((o) => {
+                const val = typeof o === 'object' && o !== null ? o.value : o;
+                const lbl = typeof o === 'object' && o !== null ? o.label : o;
+                return (
+                  <MenuItem key={val} value={val}>
+                    {lbl}
+                  </MenuItem>
+                );
+              })}
           </TextField>
         );
       }}

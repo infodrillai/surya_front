@@ -29,12 +29,12 @@ const storedVersions = async () => Object.fromEntries(await Promise.all(MASTERS.
 /** Reload the given masters in a single Dexie transaction and refresh dependent queries. */
 export async function reloadMasters(list) {
   const { data, versions } = await call('clssurya.api.get_masters', { only: JSON.stringify(list) });
-  const names = Object.keys(data);
+  const names = Object.keys(data).filter((m) => MASTERS.includes(m));
   await db.transaction('rw', [...names.map((m) => db.table(m)), db.meta], async () => {
     for (const m of names) {
       await db.table(m).clear();
-      await db.table(m).bulkPut(data[m]);
-      await setMeta(`v:${m}`, versions[m]);
+      await db.table(m).bulkPut(data[m] || []);
+      await setMeta(`v:${m}`, versions[m] ?? 0);
     }
   });
   const store = useSyncStore.getState();
@@ -49,11 +49,12 @@ export async function syncMasters() {
     store.setStatus('syncing');
     const server = await call('clssurya.api.get_master_versions', {}, { get: true });
     const local = await storedVersions();
-    const stale = Object.keys(server).filter((m) => local[m] === undefined || local[m] !== server[m]);
+    const stale = Object.keys(server).filter((m) => MASTERS.includes(m) && (local[m] === undefined || local[m] !== server[m]));
     if (stale.length) await reloadMasters(stale);
     else store.setVersions(local);
     store.setStatus('ready');
   } catch (e) {
+    console.error('syncMasters failed:', e);
     store.setStatus('error', e.message);
   }
 }

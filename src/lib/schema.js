@@ -45,7 +45,7 @@ function fieldSchema(f) {
   const str = z.string();
 
   return z.preprocess(
-    (v) => v ?? '',
+    (v) => (v == null ? '' : String(v)),
     f.required ? str.min(1, 'Required') : str
   );
 }
@@ -70,7 +70,10 @@ export function buildSchema(config) {
 export function buildDefaults(config, doc) {
   const out = { ...(doc || {}) };
   config.fields.forEach((f) => {
-    if (out[f.name] == null) out[f.name] = f.default?.() ?? (f.type === 'check' || NUMERIC.includes(f.type) ? (f.type === 'check' ? 0 : '') : '');
+    if (out[f.name] == null) {
+      const def = typeof f.default === 'function' ? f.default() : f.default;
+      out[f.name] = def ?? (f.type === 'check' || NUMERIC.includes(f.type) ? (f.type === 'check' ? 0 : '') : '');
+    }
   });
   (config.tables || []).forEach((t) => {
     out[t.name] = (doc?.[t.name] || []).map((r) => {

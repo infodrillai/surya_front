@@ -36,17 +36,33 @@ export default function DocForm({ config, doc, open, onClose }) {
 
   const schema = useMemo(() => buildSchema(config), [config]);
   const form = useForm({ resolver: zodResolver(schema), defaultValues: buildDefaults(config, doc) });
-  const { control, handleSubmit, reset } = form;
+  const { control, handleSubmit, reset, formState: { errors } } = form;
   const values = useWatch({ control });
   const locked = !!doc?.is_completed || !!config.isLocked?.(doc);
   const isNew = !doc?.name;
 
   useEffect(() => {
     if (!open) return;
-    const d = buildDefaults(config, doc);
-    reset(d);
-    loadedKey.current = doc?.name ? config.loadKey?.(d) ?? null : null;
-    setTab(0);
+    let active = true;
+    (async () => {
+      let initial = { ...(doc || {}) };
+      if (doc?.name && config.companion?.load) {
+        try {
+          const comp = await config.companion.load(doc);
+          if (comp) initial = { ...initial, ...comp };
+        } catch (e) {
+          console.error('Failed to load companion data:', e);
+        }
+      }
+      if (!active) return;
+      const d = buildDefaults(config, initial);
+      reset(d);
+      loadedKey.current = doc?.name ? config.loadKey?.(d) ?? null : null;
+      setTab(0);
+    })();
+    return () => {
+      active = false;
+    };
   }, [open, doc, config, reset]);
 
   // live preview (server stays authoritative)
@@ -95,7 +111,40 @@ export default function DocForm({ config, doc, open, onClose }) {
     onError: (e) => notify(e.message, 'error'),
   });
 
-  const invalid = () => notify('Fix the highlighted fields first.', 'warning');
+  const tableError = (tName) => {
+    const err = errors[tName];
+    if (!err) return null;
+    if (typeof err.message === 'string') return err.message;
+    if (Array.isArray(err)) {
+      for (const rowErr of err) {
+        if (rowErr) {
+          for (const fErr of Object.values(rowErr)) {
+            if (fErr?.message) return fErr.message;
+          }
+        }
+      }
+    }
+    return null;
+  };
+
+  const invalid = (errs) => {
+    if (config.tableTabs && tables.length) {
+      const errTabIndex = tables.findIndex((t) => tableError(t.name));
+      if (errTabIndex >= 0) setTab(errTabIndex);
+    }
+    const messages = [];
+    const extract = (errObj) => {
+      if (!errObj || typeof errObj !== 'object') return;
+      if (errObj.message && typeof errObj.message === 'string') {
+        messages.push(errObj.message);
+      } else {
+        Object.values(errObj).forEach(extract);
+      }
+    };
+    extract(errs);
+    const unique = [...new Set(messages)];
+    notify(unique.length ? `Please fix: ${unique.join(' · ')}` : 'Fix the highlighted fields first.', 'warning');
+  };
   const onSave = handleSubmit(async (vals) => {
     await save.mutateAsync(vals);
     await afterChange();
@@ -123,7 +172,15 @@ export default function DocForm({ config, doc, open, onClose }) {
   const banner = config.banner?.(values);
   const busy = save.isPending || act.isPending;
 
-  const tableView = (t) => <ChildTable key={t.name} table={t} control={control} disabled={locked} registry={registry} />;
+  const tableView = (t) => {
+    const err = tableError(t.name);
+    return (
+      <Box key={t.name}>
+        {err && <Alert severity="error" sx={{ mb: 1.5 }}>{err}</Alert>}
+        <ChildTable table={t} control={control} disabled={locked} registry={registry} />
+      </Box>
+    );
+  };
 
   return (
     <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="lg" scroll="paper">
@@ -148,7 +205,20 @@ export default function DocForm({ config, doc, open, onClose }) {
             tables.length ? (
               <Box>
                 <Tabs value={Math.min(tab, tables.length - 1)} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-                  {tables.map((t) => <Tab key={t.name} label={t.label} />)}
+                  {tables.map((t) => (
+                    <Tab
+                      key={t.name}
+                      label={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
+                          <span>{t.label}</span>
+                          {tableError(t.name) && (
+                            <Chip size="small" color="error" label="!" sx={{ height: 18, width: 18, fontSize: 11, '& .MuiChip-label': { px: 0 } }} />
+                          )}
+                        </Box>
+                      }
+                      sx={tableError(t.name) ? { color: 'error.main' } : undefined}
+                    />
+                  ))}
                 </Tabs>
                 {tableView(tables[Math.min(tab, tables.length - 1)])}
               </Box>

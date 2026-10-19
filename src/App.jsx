@@ -8,7 +8,9 @@ import { MENU } from './config/menu';
 import { prepareCache, syncMasters } from './db/masterCache';
 import { startRealtime, stopRealtime } from './db/realtime';
 import BatchPage from './pages/BatchPage';
+import CustomerOutstandingPage from './pages/CustomerOutstandingPage';
 import Dashboard from './pages/Dashboard';
+import InventoryPage from './pages/InventoryPage';
 import Login from './pages/Login';
 import { useAuthStore } from './stores/authStore';
 import { useSyncStore } from './stores/syncStore';
@@ -52,12 +54,15 @@ function Shell() {
         {Object.entries(RESOURCES).map(([path, config]) => (
           <Route key={path} path={path} element={<Guard path={path}><CrudPage key={path} config={config} /></Guard>} />
         ))}
+        <Route path="/inventory" element={<Guard path="/inventory"><InventoryPage /></Guard>} />
         <Route path="/batch" element={<Guard path="/batch"><BatchPage /></Guard>} />
+        <Route path="/customer-outstanding" element={<Guard path="/customer-outstanding"><CustomerOutstandingPage /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
   );
 }
+
 
 export default function App() {
   const { status, bootstrap } = useAuthStore();

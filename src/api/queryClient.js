@@ -8,5 +8,5 @@ export const queryClient = new QueryClient({
 export const DEPENDENT_QUERIES = {
   Product: [['stage_rows'], ['finished_cost'], ['list', 'Inventory']],
   BOM: [['stage_rows']],
-  Customer: [], Vendor: [], UOM: [], Category: [], Process: [], Charge: [],
+  Customer: [], Vendor: [], UOM: [], Category: [], Process: [], Charge: [], Company: [],
 };
