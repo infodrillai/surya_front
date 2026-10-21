@@ -28,7 +28,7 @@ const storedVersions = async () => Object.fromEntries(await Promise.all(MASTERS.
 
 /** Reload the given masters in a single Dexie transaction and refresh dependent queries. */
 export async function reloadMasters(list) {
-  const { data, versions } = await call('clssurya.api.get_masters', { only: JSON.stringify(list) });
+  const { data, versions } = await call('clssurya.api.get_masters', { only: JSON.stringify(list) }, { get: true });
   const names = Object.keys(data).filter((m) => MASTERS.includes(m));
   await db.transaction('rw', [...names.map((m) => db.table(m)), db.meta], async () => {
     for (const m of names) {

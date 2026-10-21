@@ -173,6 +173,36 @@ export function purchaseCalc(v, { masters, companyState }) {
 }
 
 
+  // quotationTaxCalc implementation moved below
+
+// -------------------------------------------------
+// PR (%) calculation for a Quotation Item
+// -------------------------------------------------
+/**
+ * Compute the PR percentage, final rate per unit and amount for a quotation item.
+ * Example (as provided by the user):
+ *   quantity: 30 kg
+ *   rate: ₹35.90/kg (original rate)
+ *   additional cost: 10% (₹3.59/kg)
+ *   => finalRate = 39.49, amount = 1184.70, pr = 10
+ *
+ * The function expects an object `item` with at least:
+ *   - quantity
+ *   - rate (original rate per unit)
+ *   - pr (additional cost percent) – if missing, defaults to 0.
+ * It returns an object `{ pr, final_rate, amount }` where:
+ *   final_rate = rate * (1 + pr/100)
+ *   amount      = final_rate * quantity
+ */
+export function computeQuotationPR(item) {
+  const qty = Number(item.quantity) || 0;
+  const rate = Number(item.rate) || 0;
+  const pr = Number(item.pr) || 0; // percentage of additional cost
+  const final_rate = rate * (1 + pr / 100);
+  const amount = final_rate * qty;
+  return { pr, final_rate, amount };
+}
+
 export function quotationTaxCalc(v) {
   const items = v.items || [];
 

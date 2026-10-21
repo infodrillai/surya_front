@@ -64,7 +64,18 @@ export const updateDoc = async (doctype, name, doc) => (await request(`${res(doc
 export const deleteDoc = (doctype, name) => request(`${res(doctype)}/${encodeURIComponent(name)}`, { method: 'DELETE' });
 
 /** complete | reopen | approve | revise | make_sales_order */
-export const runAction = (doctype, name, action) => call('clssurya.api.run_action', { doctype, name, action });
+export const runAction = async (doctype, name, action, args = {}) => {
+  try {
+    return await call('clssurya.api.run_action', { doctype, name, action, args });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 417) {
+      const token = await call('clssurya.api.get_csrf_token', {}, { get: true });
+      setCsrf(token);
+      return await call('clssurya.api.run_action', { doctype, name, action, args });
+    }
+    throw e;
+  }
+};
 
 export async function login(usr, pwd) {
   await request('/api/method/login', { method: 'POST', body: { usr, pwd } });

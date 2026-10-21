@@ -35,12 +35,12 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://127.0.0.1:8001',
         changeOrigin: true,
         headers: { 'X-Frappe-Site-Name': 'surya.local' },
       },
       '/socket.io': {
-        target: 'http://127.0.0.1:9000',
+        target: 'http://127.0.0.1:9001',
         ws: true,
         changeOrigin: true,
       },
