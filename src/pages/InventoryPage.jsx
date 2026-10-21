@@ -45,11 +45,12 @@ import {
   TuneOutlined,
   WarehouseOutlined,
   WarningAmberRounded,
+  PieChartOutlined,
 } from '@mui/icons-material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo, useState } from 'react';
-import { getList } from '../api/client';
+import { getList, call } from '../api/client';
 import { db } from '../db/dexie';
 import { fmtDate, fmtMoney, fmtNum } from '../lib/format';
 import { palette } from '../theme';
@@ -121,6 +122,109 @@ const DEFAULT_STAGE_THEME = {
 
 function getStageTheme(stage) {
   return STAGE_THEMES[stage] || DEFAULT_STAGE_THEME;
+}
+
+// Multi-color Stacked Bar for Charge Bifurcation
+function BifurcationStackedBar({ components = [], height = 7, sx = {} }) {
+  if (!components || !components.length) return null;
+  const total = components.reduce((acc, c) => acc + (Number(c.total) || 0), 0);
+  if (total <= 0) return null;
+
+  return (
+    <Box
+      sx={{
+        width: '100%',
+        height,
+        borderRadius: height / 2,
+        overflow: 'hidden',
+        display: 'flex',
+        bgcolor: '#e2e8f0',
+        ...sx,
+      }}
+    >
+      {components
+        .filter((c) => Number(c.total) > 0)
+        .map((c, idx) => {
+          const widthPct = Math.max((Number(c.total) / total) * 100, 1.5);
+          return (
+            <Tooltip
+              key={idx}
+              arrow
+              title={
+                <Box sx={{ p: 0.5, textAlign: 'center' }}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', color: '#ffffff' }}>
+                    {c.name}
+                  </Typography>
+                  <Typography variant="caption" sx={{ fontSize: 11, color: '#f1f5f9' }}>
+                    Split: {fmtMoney(c.total, 2)} ({c.percent}%)
+                  </Typography>
+                  {Number(c.per_unit) > 0 && (
+                    <Typography variant="caption" sx={{ fontSize: 10, display: 'block', color: 'rgba(255,255,255,0.8)' }}>
+                      Rate: {fmtMoney(c.per_unit, 2)}/pc
+                    </Typography>
+                  )}
+                </Box>
+              }
+            >
+              <Box
+                sx={{
+                  width: `${widthPct}%`,
+                  height: '100%',
+                  bgcolor: c.color || '#0284c7',
+                  transition: 'opacity 0.2s',
+                  '&:hover': { opacity: 0.82, cursor: 'pointer' },
+                }}
+              />
+            </Tooltip>
+          );
+        })}
+    </Box>
+  );
+}
+
+// Compact Charge Badges displaying the individual charge split amounts
+function ChargeBadges({ costHeads, compact = false }) {
+  if (!costHeads) return null;
+  const items = [
+    { key: 'material', ...costHeads.material },
+    { key: 'labour', ...costHeads.labour },
+    { key: 'cnc', ...costHeads.cnc },
+    { key: 'admin', ...costHeads.admin },
+    { key: 'rejection', ...costHeads.rejection },
+    { key: 'electricity', ...costHeads.electricity },
+  ].filter((h) => Number(h?.amount) > 0);
+
+  return (
+    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+      {items.map((h) => (
+        <Tooltip
+          key={h.key}
+          arrow
+          title={`${h.name}: ${fmtMoney(h.amount, 2)} (${h.percent}% of valuation) · ${fmtMoney(h.unit_rate, 2)}/pc`}
+        >
+          <Box
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.4,
+              px: compact ? 0.6 : 0.75,
+              py: compact ? 0.15 : 0.25,
+              borderRadius: '4px',
+              bgcolor: '#f1f5f9',
+              border: '1px solid #e2e8f0',
+              fontSize: compact ? 10 : 10.5,
+              fontWeight: 600,
+              color: '#334155',
+            }}
+          >
+            <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: h.color || '#0284c7', flexShrink: 0 }} />
+            <span>{h.name?.split(' ')[0]}:</span>
+            <span style={{ fontWeight: 700, color: '#0f172a' }}>{fmtMoney(h.amount, compact ? 0 : 2)}</span>
+          </Box>
+        </Tooltip>
+      ))}
+    </Box>
+  );
 }
 
 // KPI Summary Card Component
@@ -367,6 +471,30 @@ function InventoryCard({ item, onSelect }) {
           </Box>
         </Paper>
 
+        {/* Charge Split Bifurcation */}
+        {item.bifurcation && (
+          <Box
+            sx={{
+              p: 1.25,
+              mb: 1.25,
+              borderRadius: '8px',
+              bgcolor: '#ffffff',
+              border: '1px solid #e7eeec',
+            }}
+          >
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.65 }}>
+              <Typography variant="caption" sx={{ fontSize: 10.5, fontWeight: 700, color: '#334155' }}>
+                Charge Split Bifurcation
+              </Typography>
+              <Typography variant="caption" sx={{ fontSize: 10, fontWeight: 700, color: palette.teal }}>
+                {fmtMoney(item.total_amount, 2)}
+              </Typography>
+            </Box>
+            <BifurcationStackedBar components={item.bifurcation.components} height={6} sx={{ mb: 0.75 }} />
+            <ChargeBadges costHeads={item.bifurcation.cost_heads} compact />
+          </Box>
+        )}
+
         {/* Stock Threshold Visual Meter (Slim) */}
         {(item.low_stock_limit > 0 || item.high_stock_limit > 0) && (
           <Box sx={{ mb: 0.75 }}>
@@ -432,7 +560,7 @@ function DetailDialog({ item, open, onClose }) {
   const StageIcon = stageTheme.Icon;
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: '16px' } }}>
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: '16px' } }}>
       <DialogTitle sx={{ pb: 1 }}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
@@ -514,6 +642,134 @@ function DetailDialog({ item, open, onClose }) {
               </Typography>
             </Box>
           </Box>
+
+          {/* Cost & Valuation Bifurcation (Charge Split) */}
+          {item.bifurcation && (
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2.25,
+                borderRadius: '12px',
+                bgcolor: '#ffffff',
+                borderColor: '#cbd5e1',
+              }}
+            >
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.75 }}>
+                <PieChartOutlined sx={{ color: palette.teal, fontSize: 22 }} />
+                <Typography variant="subtitle1" sx={{ fontWeight: 750, color: '#0f172a' }}>
+                  Cost & Valuation Bifurcation (Charge Split)
+                </Typography>
+              </Stack>
+              <Typography variant="body2" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                Split of current <strong>{fmtMoney(item.total_amount, 2)}</strong> valuation and{' '}
+                <strong>{fmtMoney(item.unit_price, 2)}</strong> unit cost across production charges and raw materials:
+              </Typography>
+
+              {/* High-Level Cost Head Summary Grid */}
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)' },
+                  gap: 1.5,
+                  mb: 2,
+                }}
+              >
+                {Object.entries(item.bifurcation.cost_heads || {})
+                  .filter(([_, h]) => Number(h?.amount) > 0 || Number(h?.unit_rate) > 0)
+                  .map(([key, head]) => (
+                    <Paper
+                      key={key}
+                      elevation={0}
+                      sx={{
+                        p: 1.5,
+                        borderRadius: '8px',
+                        bgcolor: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        borderLeft: `4px solid ${head.color || '#0284c7'}`,
+                      }}
+                    >
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block' }}>
+                        {head.name}
+                      </Typography>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#0f172a', mt: 0.25 }}>
+                        {fmtMoney(head.amount, 2)}
+                      </Typography>
+                      <Typography variant="caption" sx={{ fontSize: 10.5, color: 'text.secondary', fontWeight: 600 }}>
+                        {fmtMoney(head.unit_rate, 2)}/pc · {head.percent}%
+                      </Typography>
+                    </Paper>
+                  ))}
+              </Box>
+
+              {/* Large Stacked Visual Bar */}
+              <Box sx={{ mb: 2.5 }}>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569', display: 'block', mb: 0.75 }}>
+                  Proportional Split of Unit Cost ({fmtMoney(item.unit_price, 2)})
+                </Typography>
+                <BifurcationStackedBar components={item.bifurcation.components} height={12} />
+              </Box>
+
+              {/* Detailed Itemized Components Table */}
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: '#1e293b' }}>
+                Itemized Charges & Material Breakdown
+              </Typography>
+              <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                <Table size="small">
+                  <TableHead sx={{ bgcolor: '#f1f5f9' }}>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700, fontSize: 11.5 }}>Charge / Component</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: 11.5 }}>Category</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: 11.5 }}>Per Unit Rate</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: 11.5 }}>Unit Share</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: 11.5 }}>Total Valuation Split</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {(item.bifurcation.components || []).map((comp, cIdx) => (
+                      <TableRow key={cIdx} hover>
+                        <TableCell>
+                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: comp.color || '#0284c7' }} />
+                            <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
+                              {comp.name}
+                            </Typography>
+                          </Stack>
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            size="small"
+                            label={comp.category}
+                            sx={{
+                              height: 18,
+                              fontSize: 10,
+                              fontWeight: 600,
+                              bgcolor: comp.category === 'Material' ? '#e0f2fe' : comp.category === 'Rejection' ? '#fee2e2' : '#fef3c7',
+                              color: comp.category === 'Material' ? '#0369a1' : comp.category === 'Rejection' ? '#b91c1c' : '#b45309',
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 600 }}>
+                            {fmtMoney(comp.per_unit, 2)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary' }}>
+                            {comp.percent}%
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 750, color: palette.teal }}>
+                            {fmtMoney(comp.total, 2)}
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+          )}
 
           {/* Product Specifications */}
           <Box>
@@ -651,6 +907,13 @@ export default function InventoryPage() {
     queryFn: () => getList('Inventory'),
   });
 
+  // Fetch charge bifurcation for all inventory items
+  const { data: serverBifurcation = {}, refetch: refetchBifurcation } = useQuery({
+    queryKey: ['inventoryBifurcation'],
+    queryFn: () => call('clssurya.api.get_inventory_bifurcation', {}, { get: true }),
+    staleTime: 20 * 1000,
+  });
+
   // Masters from IndexedDB (Dexie)
   const products = useLiveQuery(() => db.Product.toArray(), []) || [];
   const categories = useLiveQuery(() => db.Category.toArray(), []) || [];
@@ -669,6 +932,8 @@ export default function InventoryPage() {
   const enrichedItems = useMemo(() => {
     return serverInventory.map((item) => {
       const p = productMap.get(item.product);
+      const bifKey = `${item.product}_${item.stage}`;
+      const bif = serverBifurcation[bifKey] || null;
       return {
         ...item,
         product_name: p?.product_name || item.product,
@@ -681,9 +946,45 @@ export default function InventoryPage() {
         stock: Number(item.stock) || 0,
         unit_price: Number(item.unit_price) || 0,
         total_amount: Number(item.total_amount) || 0,
+        bifurcation: bif,
       };
     });
-  }, [serverInventory, productMap]);
+  }, [serverInventory, productMap, serverBifurcation]);
+
+  // Warehouse Valuation Bifurcation across Production Charges
+  const warehouseBifurcation = useMemo(() => {
+    const totals = {
+      material: 0,
+      rejection: 0,
+      labour: 0,
+      electricity: 0,
+      cnc: 0,
+      admin: 0,
+    };
+    enrichedItems.forEach((item) => {
+      if (item.bifurcation?.cost_heads) {
+        Object.entries(item.bifurcation.cost_heads).forEach(([k, v]) => {
+          if (totals[k] !== undefined) {
+            totals[k] += Number(v?.amount) || 0;
+          }
+        });
+      } else {
+        totals.material += Number(item.total_amount) || 0;
+      }
+    });
+    const grandTotal = Object.values(totals).reduce((a, b) => a + b, 0) || 1;
+    return {
+      heads: [
+        { key: 'material', name: 'Raw Materials', amount: totals.material, percent: (totals.material / grandTotal) * 100, color: '#0284c7' },
+        { key: 'labour', name: 'Labour Expense', amount: totals.labour, percent: (totals.labour / grandTotal) * 100, color: '#f59e0b' },
+        { key: 'cnc', name: 'CNC Repair & Tooling', amount: totals.cnc, percent: (totals.cnc / grandTotal) * 100, color: '#10b981' },
+        { key: 'admin', name: 'Admin Expense', amount: totals.admin, percent: (totals.admin / grandTotal) * 100, color: '#64748b' },
+        { key: 'rejection', name: 'Rejection Cost', amount: totals.rejection, percent: (totals.rejection / grandTotal) * 100, color: '#ef4444' },
+        { key: 'electricity', name: 'Electricity', amount: totals.electricity, percent: (totals.electricity / grandTotal) * 100, color: '#eab308' },
+      ].filter((h) => h.amount > 0),
+      grandTotal,
+    };
+  }, [enrichedItems]);
 
   // Overall Statistics
   const stats = useMemo(() => {
@@ -939,6 +1240,76 @@ export default function InventoryPage() {
           iconColor="#6366f1"
         />
       </Box>
+
+      {/* Warehouse Valuation Bifurcation by Charge Head */}
+      {warehouseBifurcation && warehouseBifurcation.heads.length > 0 && (
+        <Paper
+          variant="outlined"
+          sx={{
+            p: 2.25,
+            mb: 3,
+            borderRadius: '14px',
+            bgcolor: '#ffffff',
+            borderColor: '#dde5e3',
+          }}
+        >
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', mb: 1.25, gap: 1 }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+              <PieChartOutlined sx={{ color: palette.teal, fontSize: 22 }} />
+              <Typography variant="subtitle1" sx={{ fontWeight: 750, color: '#12262a' }}>
+                Warehouse Valuation Bifurcation across Production Charges
+              </Typography>
+            </Stack>
+            <Typography variant="body2" sx={{ fontWeight: 800, color: palette.teal }}>
+              Total Warehouse Valuation: {fmtMoney(stats.totalValuation, 2)}
+            </Typography>
+          </Box>
+
+          {/* Proportional Stacked Bar */}
+          <BifurcationStackedBar
+            components={warehouseBifurcation.heads.map((h) => ({
+              name: h.name,
+              total: h.amount,
+              percent: h.percent.toFixed(1),
+              color: h.color,
+            }))}
+            height={10}
+            sx={{ mb: 1.5 }}
+          />
+
+          {/* Charge Heads Legend & Amounts */}
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)', md: 'repeat(6, 1fr)' },
+              gap: 1.5,
+            }}
+          >
+            {warehouseBifurcation.heads.map((h) => (
+              <Box
+                key={h.key}
+                sx={{
+                  p: 1.25,
+                  borderRadius: '8px',
+                  bgcolor: '#f8faf9',
+                  border: '1px solid #e7eeec',
+                  borderLeft: `4px solid ${h.color}`,
+                }}
+              >
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, fontSize: 11, display: 'block' }}>
+                  {h.name}
+                </Typography>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#12262a', mt: 0.25 }}>
+                  {fmtMoney(h.amount, 2)}
+                </Typography>
+                <Typography variant="caption" sx={{ fontSize: 10.5, fontWeight: 700, color: h.color }}>
+                  {h.percent.toFixed(1)}% of store
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+        </Paper>
+      )}
 
       {/* Filter & Toolbar Area */}
       <Paper
@@ -1202,6 +1573,7 @@ export default function InventoryPage() {
                   <TableCell align="right">Stock</TableCell>
                   <TableCell align="right">Unit Cost</TableCell>
                   <TableCell align="right">Valuation</TableCell>
+                  <TableCell align="center" sx={{ minWidth: 180 }}>Charge Split (Bifurcation)</TableCell>
                   <TableCell align="center">Status</TableCell>
                   <TableCell align="right">Action</TableCell>
                 </TableRow>
@@ -1261,6 +1633,17 @@ export default function InventoryPage() {
                         <Typography variant="body2" sx={{ fontWeight: 750, color: palette.teal }}>
                           {fmtMoney(item.total_amount, 2)}
                         </Typography>
+                      </TableCell>
+
+                      <TableCell align="center">
+                        {item.bifurcation ? (
+                          <Box sx={{ minWidth: 170, textAlign: 'left', py: 0.5 }}>
+                            <BifurcationStackedBar components={item.bifurcation.components} height={6} sx={{ mb: 0.6 }} />
+                            <ChargeBadges costHeads={item.bifurcation.cost_heads} compact />
+                          </Box>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">—</Typography>
+                        )}
                       </TableCell>
 
                       <TableCell align="center">
