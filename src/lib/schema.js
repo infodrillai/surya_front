@@ -4,49 +4,133 @@ const NUMERIC = ['number', 'currency', 'percent'];
 
 /** @param {object} f field config */
 
+// function fieldSchema(f) {
+//   if (NUMERIC.includes(f.type)) {
+//     let s = z.preprocess(
+//       (value) => {
+//         if (value === '' || value === null || value === undefined) {
+//           if (f.default) return f.default();
+
+//           // Empty optional numeric fields default to zero.
+//           // Positive fields must still have a value greater than zero.
+//           if (f.positive || f.required) return undefined;
+
+//           return 0;
+//         }
+
+//         return value;
+//       },
+//       z.coerce.number({ invalid_type_error: 'Enter a number' })
+//     );
+
+//     if (f.positive) {
+//       s = s.pipe(z.number().gt(0, 'Must be greater than 0'));
+//     } else if (!f.allowNegative) {
+//       s = s.pipe(z.number().min(0, 'Cannot be negative'));
+//     }
+
+//     if (f.max != null) {
+//       s = s.pipe(z.number().max(f.max, `Max ${f.max}`));
+//     }
+
+//     if (f.default) {
+//       s = s.default(() => f.default());
+//     }
+
+//     return s;
+//   }
+
+//   if (f.type === 'check') return z.coerce.number();
+
+//   const str = z.string();
+
+//   return z.preprocess(
+//     (v) => (v == null ? '' : String(v)),
+//     f.required ? str.min(1, 'Required') : str
+//   );
+// }
+
 function fieldSchema(f) {
   if (NUMERIC.includes(f.type)) {
     let s = z.preprocess(
       (value) => {
-        if (value === '' || value === null || value === undefined) {
-          if (f.default) return f.default();
+        if (
+          value === '' ||
+          value === null ||
+          value === undefined
+        ) {
+          if (f.default !== undefined && f.default !== null) {
+            return typeof f.default === 'function'
+              ? f.default()
+              : f.default;
+          }
 
-          // Empty optional numeric fields default to zero.
-          // Positive fields must still have a value greater than zero.
-          if (f.positive || f.required) return undefined;
+          if (f.positive || f.required) {
+            return undefined;
+          }
 
           return 0;
         }
 
-        return value;
+        const number = Number(value);
+
+        if (!Number.isFinite(number)) {
+          return undefined;
+        }
+
+        return number;
       },
-      z.coerce.number({ invalid_type_error: 'Enter a number' })
+      z.number({
+        required_error: 'Enter a number',
+        invalid_type_error: 'Enter a valid number',
+      })
     );
 
     if (f.positive) {
-      s = s.pipe(z.number().gt(0, 'Must be greater than 0'));
+      s = s.pipe(
+        z.number().gt(0, 'Must be greater than 0')
+      );
     } else if (!f.allowNegative) {
-      s = s.pipe(z.number().min(0, 'Cannot be negative'));
+      s = s.pipe(
+        z.number().min(0, 'Cannot be negative')
+      );
     }
 
     if (f.max != null) {
-      s = s.pipe(z.number().max(f.max, `Max ${f.max}`));
-    }
-
-    if (f.default) {
-      s = s.default(() => f.default());
+      s = s.pipe(
+        z.number().max(f.max, `Max ${f.max}`)
+      );
     }
 
     return s;
   }
 
-  if (f.type === 'check') return z.coerce.number();
+  // Checkbox fields
+  if (f.type === 'check') {
+    return z.preprocess(
+      (value) => {
+        if (
+          value === '' ||
+          value === null ||
+          value === undefined
+        ) {
+          return 0;
+        }
 
+        return value;
+      },
+      z.coerce.number()
+    );
+  }
+
+  // Text, links, dates, selects, and other fields
   const str = z.string();
 
   return z.preprocess(
-    (v) => (v == null ? '' : String(v)),
-    f.required ? str.min(1, 'Required') : str
+    (value) => (value == null ? '' : String(value)),
+    f.required
+      ? str.min(1, 'Required')
+      : str
   );
 }
 

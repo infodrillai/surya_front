@@ -3,10 +3,12 @@
  * @typedef {{name:string,label:string,type?:string,master?:string,doctype?:string,filter?:Function,required?:boolean,
  *   readOnly?:boolean,readOnlyOnEdit?:boolean,summary?:boolean,positive?:boolean,showIf?:Function,options?:string[]}} FieldConfig
  */
+import React from 'react';
 import { LinearProgress, Stack, Typography, Chip } from '@mui/material';
 import { call, deleteDoc, getDoc, insertDoc, runAction, updateDoc } from '../api/client';
 import { db } from '../db/dexie';
 import { purchaseCalc, salesCalc, stageCalc, computeQuotationPR } from '../lib/formulas';
+import QtyDialog from '../components/QtyDialog';
 import { todayISO } from '../lib/format';
 
 // ---- field helpers ---------------------------------------------------------
@@ -19,6 +21,11 @@ const sel = (name, label, options, x = {}) => ({ name, label, type: 'select', op
 const ro = (f) => ({ ...f, readOnly: true });
 const sum = (f) => ({ ...f, readOnly: true, summary: true, default: () => 0 });
 const status = { field: 'is_completed', label: 'Status', type: 'doc-status' };
+const workflowStatus = {
+  field: 'status',
+  label: 'Status',
+  type: 'status',
+};
 const col = (field, label, type) => ({ field, label, type });
 
 
@@ -213,7 +220,7 @@ const stageConfig = (stage) => ({
     num('rejection_percent', stage === 3 ? 'Rejection % (on everything)' : 'Rejection %', { max: 99.99 }),
     sum(cur('carried_cost', 'Carried cost')), sum(cur('added_cost', 'Added cost')),
     ...(stage === 3 ? [sum(cur('tooling_amount', 'Tooling cost'))] : []),
-    sum(cur('rejection_amount', 'Rejection')), sum(cur('batch_total', 'Batch total')), sum(cur('unit_cost', 'Unit cost', { dp: 4 })),
+    sum(cur('rejection_amount', 'Rejection')), sum(cur('batch_total', 'Batch total')), sum(cur('unit_cost', 'Unit cost', { dp: 3 })),
   ],
   tables: [
     { name: 'items', label: stage === 1 ? 'Raw materials' : stage === 2 ? 'Consumption (carried-in + raw)' : 'Carried-in Stage 2 stock', fields: itemFields, noAdd: true },
@@ -226,21 +233,109 @@ const stageConfig = (stage) => ({
   loadKey: (v) => (v.product && Number(v.quantity) > 0 ? `${v.product}|${v.quantity}` : null),
   loadRows: stageRows(stage),
   columns: [col('name', 'No'), col('product', 'Product'), col('quantity', 'Quantity', 'number'), col('unit_cost', 'Unit cost', 'currency'), col('batch_total', 'Batch total', 'currency'), status],
+  // Validate numeric fields to avoid NaN when saving/completing
+  validate: (v) => {
+    const e = {};
+    const numFields = ['quantity', 'tooling_percent', 'rejection_percent'];
+    numFields.forEach((f) => {
+      if (v[f] !== undefined && isNaN(Number(v[f]))) {
+        e[f] = 'Expected number, received NaN';
+      }
+    });
+    return e;
+  },
 });
 export const STAGE_CONFIGS = [stageConfig(1), stageConfig(2), stageConfig(3)];
 
 // ---- Sales -----------------------------------------------------------------
 const finished = (r) => r.product_type === 'Finished';
+
+// Fetch default UOM and cost/unit when a product is selected in a row
+const fetchProductInfo = async (product) => {
+  if (!product) return {};
+  try {
+    const doc = await getDoc('Product', product);
+    return {
+      uom: doc?.uom || '',
+      production_cost: doc?.production_cost || 0,
+    };
+  } catch (e) {
+    console.warn('Unable to fetch product info for', product, e);
+    return {};
+  }
+};
 const belowBanner = (v) => (v.below_cost ? { severity: 'warning', text: 'One or more rows are priced below production cost.' } : null);
+
+// Helper to compute final rate (including PR) and line amount
+const computeLineAmount = (row) => {
+  const qty = Number(row.quantity) || 0;
+  const rate = Number(row.rate) || 0;
+  const pr = Number(row.pr) || 0;
+  const addCost = (rate * pr) / 100;
+  const finalRate = rate + addCost;
+  return { finalRate, amount: qty * finalRate };
+};
 const salesRow = [
-  link('product', 'Product', 'Product', { required: true, minWidth: 220, labelField: 'product_name' }),
+  // Product with onChange to fill UOM and cost/unit
+  {
+    ...link('product', 'Product', 'Product', {
+      required: true,
+      minWidth: 220,
+      labelField: 'product_name',
+      onChange: async (row) => {
+        const info = await fetchProductInfo(row.product);
+        row.uom = info.uom;
+        row.production_cost = info.production_cost;
+      },
+    }),
+  },
   ro(t('uom', 'UOM')),
   ro(cur('production_cost', 'Cost / unit', { dp: 4 })),
-  num('quantity', 'Qty', { positive: true }),
-  num('pr', 'PR (%)', { dp: 2, default: () => 0 }),
-  cur('rate', 'Rate'),
+  num('quantity', 'Qty', { positive: true, onChange: (row) => { const { finalRate, amount } = computeLineAmount(row); row.final_rate = finalRate; row.amount = amount; } }),
+  num('pr', 'PR (%)', { dp: 2, default: () => 0, onChange: (row) => { const { finalRate, amount } = computeLineAmount(row); row.final_rate = finalRate; row.amount = amount; } }),
+  // per‑line Discount & GST (displayed below item fields)
+  cur('rate', 'Rate', { onChange: (row) => { const { finalRate, amount } = computeLineAmount(row); row.final_rate = finalRate; row.amount = amount; } }),
   ro(cur('amount', 'Amount')),
 ];
+
+// ---- Quotation-specific row ---------------------------------------------------
+// Rate is READ-ONLY and auto-derived: Rate = Cost/unit × (1 + PR%)
+// Amount = Qty × Rate
+const quotationLineCalc = (row) => {
+  const cost = Number(row.production_cost) || 0;
+  const pr = Number(row.pr) || 0;
+  const qty = Number(row.quantity) || 0;
+  const rate = cost * (1 + pr / 100);
+  const amount = qty * rate;
+  return { rate, amount };
+};
+
+const quotationRow = [
+  {
+    ...link('product', 'Product', 'Product', {
+      required: true,
+      minWidth: 220,
+      labelField: 'product_name',
+      onChange: async (row) => {
+        const info = await fetchProductInfo(row.product);
+        row.uom = info.uom;
+        row.production_cost = info.production_cost;
+        // Recalculate rate & amount with the new cost
+        const { rate, amount } = quotationLineCalc({ ...row, production_cost: info.production_cost });
+        row.rate = rate;
+        row.amount = amount;
+      },
+    }),
+  },
+  ro(t('uom', 'UOM')),
+  ro(cur('production_cost', 'Cost / unit', { dp: 4 })),
+  num('quantity', 'Qty', { positive: true, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }),
+  num('pr', 'PR (%)', { dp: 2, default: () => 0, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }),
+  ro(cur('rate', 'Rate', { dp: 4 })),     // Cost/unit × (1 + PR%) — auto-calculated
+  ro(cur('amount', 'Amount')),
+];
+
+
 
 // --- quotation -----------------------------------------------------------------
 const quotation = {
@@ -255,69 +350,62 @@ const quotation = {
   fields: [
     link('customer', 'Customer', 'Customer', { required: true }),
     date('quotation_date', 'Date'),
-    // --- Discount --------------------------------------------------------------
 
-    num('discount_percent', 'Discount (%)', {
-      default: () => 0,
-    }),
-
+    // ---- Summary section (order = display order) ----
     sum(cur('subtotal', 'Subtotal')),
-    cur('discount_amount', 'Discount Amount'),
-    cur('taxable_amount', 'Taxable Amount'),
-
-    num('gst_percent', 'GST (%)', {
-      default: () => 18,
-    }),
-    sum(cur('total_amount', 'Total Amount')),
+    { ...num('discount_percent', 'Discount (%)', { max: 100 }), summary: true },  // editable
+    sum(cur('discount_amount', 'Discount Amount')),
+    //sum(cur('taxable_amount', 'Taxable Amount')),
+    { ...num('gst_percent', 'GST (%)', { max: 100 }), summary: true },            // editable
+    sum(cur('tax_amount', 'GST Amount')),
     sum(cur('grand_total', 'Grand Total')),
-
   ],
 
   tables: [{
     name: 'items',
     label: 'Items',
-    fields: salesRow,
-    newRow: () => ({ quantity: '', rate: '', name: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` }),
+    fields: quotationRow,
+    newRow: () => ({ quantity: '', pr: 0, name: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` }),
     empty: 'Add finished products to quote.',
   }],
 
 
   compute: (v, ctx) => {
-    // Base sales calculation (totals, discounts, GST)
+    // Fill production_cost from finishedCost (live Stage 3 unit price) when available
     const base = salesCalc(v, ctx);
-    // Enhance each item with PR calculations
-    const itemsWithPR = (v.items || []).map((item) => {
-      const { final_rate, amount } = computeQuotationPR(item);
-      const add_cost = (Number(item.rate) * (Number(item.pr) || 0)) / 100;
-      return { ...item, add_cost, final_rate, amount };
+    const baseItems = base.rows?.items || v.items || [];
+
+    // For each row: rate = production_cost × (1 + pr/100), amount = qty × rate
+    const items = baseItems.map((item) => {
+      const cost = Number(item.production_cost) || 0;
+      const pr = Number(item.pr) || 0;
+      const qty = Number(item.quantity) || 0;
+      const rate = cost * (1 + pr / 100);
+      const amount = qty * rate;
+      return { ...item, rate, amount };
     });
-    // Re‑calculate totals using PR‑adjusted values
-    const subtotal = itemsWithPR.reduce((t, it) => t + (Number(it.final_rate) * Number(it.quantity) || 0), 0);
-    const discountPercent = Math.min(100, Math.max(0, Number(v.discount_percent)));
-    const discountAmount = subtotal * discountPercent / 100;
-    const taxableAmount = Math.max(0, subtotal - discountAmount);
-    const gstPercent = Math.max(0, Number(v.gst_percent));
-    const totalGST = taxableAmount * gstPercent / 100;
-    // const isIGST = v.gst_type === 'IGST';
-    // const cgst = isIGST ? 0 : totalGST / 2;
-    // const sgst = isIGST ? 0 : totalGST / 2;
-    // const igst = isIGST ? totalGST : 0;
+
+    const subtotal = items.reduce((t, it) => t + it.amount, 0);
+    const discountPct = Math.min(100, Math.max(0, Number(v.discount_percent) || 0));
+    const discountAmt = subtotal * discountPct / 100;
+    const taxableAmt = Math.max(0, subtotal - discountAmt);
+    const gstPct = Math.min(100, Math.max(0, Number(v.gst_percent) || 0));
+    const taxAmt = taxableAmt * gstPct / 100;
+
     return {
       top: {
         ...base.top,
         subtotal,
-        discount_amount: discountAmount,
-        taxable_amount: taxableAmount,
-        // cgst_amount: cgst,
-        // sgst_amount: sgst,
-        // igst_amount: igst,
+        discount_amount: discountAmt,
+        taxable_amount: taxableAmt,
+        tax_amount: taxAmt,
         total_amount: subtotal,
-        grand_total: taxableAmount + totalGST,
+        grand_total: taxableAmt + taxAmt,
       },
-      rows: { items: itemsWithPR },
+      rows: { items },
     };
   },
-  banner: belowBanner,
+
 
   validate: (v) => {
     const errors = {};
@@ -344,12 +432,11 @@ const quotation = {
   columns: [
     col('name', 'No'),
     col('customer', 'Customer'),
-    col('version', 'Version', 'number'),
     col('quotation_date', 'Date', 'date'),
     col('total_amount', 'Grand total', 'currency'),
     col('status', 'Status', 'status'),
-    col('below_cost', '', 'flag'),
   ],
+
 
   rowActions: [
     {
@@ -357,70 +444,313 @@ const quotation = {
       label: 'Revise',
       show: (r) => r.status !== 'Superseded',
       run: async (r) =>
-        `Created ${(await runAction('Quotation', r.name, 'revise')).result
-        }`,
+        `Created ${(await runAction('Quotation', r.name, 'revise')).result}`
+    },
+    {
+      key: 'approve',
+      label: 'Approve',
+      show: (r) => r.status === 'Draft',
+      run: async (r) => {
+        const result = await runAction('Quotation', r.name, 'approve');
+        return result?.result ? `Approved ${r.name}` : `Failed to approve ${r.name}`;
+      },
     },
     {
       key: 'order',
       label: 'Create order',
-      show: (r) => ['Draft', 'Sent'].includes(r.status),
-      run: async (r) =>
-        `Created ${(await runAction(
-          'Quotation',
-          r.name,
-          'make_sales_order'
-        )).result
-        }`,
+      show: (r) => r.status === 'Approved',
+      run: async (r) => {
+        const soResult = await runAction('Quotation', r.name, 'make_sales_order');
+        const soName = soResult.result;
+        return `Created Sales Order ${soName}`;
+      },
     },
   ],
+
 };
 
 
+// ---- Sales Order: module-level dialog state (shared across actions) ----------
+let _soDialogOpen = false;
+let _soDialogData = { orderId: '', pendingItems: [] };
+let _soDialogResolver = null;
+
+/** Open the QtyDialog from a rowAction and await the user's response. */
+async function openQtyDialog(orderId, pendingItems) {
+  return new Promise((resolve) => {
+    _soDialogOpen = true;
+    _soDialogData = { orderId, pendingItems };
+    _soDialogResolver = resolve;
+    // Force a re-render by dispatching a custom event
+    window.dispatchEvent(new CustomEvent('so-qty-dialog-open'));
+    // The dialog calls resolve when it closes
+  });
+}
+
+/**
+ * SalesOrderQtyDialogHost – mount this once in the app tree (e.g. in App.jsx).
+ * It listens for the custom event and renders the QtyDialog.
+ */
+export function SalesOrderQtyDialogHost() {
+  const [open, setOpen] = React.useState(false);
+  const [orderId, setOrderId] = React.useState('');
+  const [pendingItems, setPendingItems] = React.useState([]);
+
+  React.useEffect(() => {
+    const handler = () => {
+      setOpen(true);
+      setOrderId(_soDialogData.orderId);
+      setPendingItems(_soDialogData.pendingItems);
+    };
+    window.addEventListener('so-qty-dialog-open', handler);
+    return () => window.removeEventListener('so-qty-dialog-open', handler);
+  }, []);
+
+  const handleClose = (result) => {
+    setOpen(false);
+    if (_soDialogResolver) {
+      _soDialogResolver(result);
+      _soDialogResolver = null;
+    }
+  };
+
+  const handleSubmit = async (items) => {
+    const result = await runAction('Sales Order', orderId, 'create_dispatch_from_sales_order', { items });
+    return `Dispatch ${result?.name ?? result?.result ?? ''} created for ${orderId}`;
+  };
+
+  return (
+    <QtyDialog
+      open={open}
+      onClose={handleClose}
+      orderId={orderId}
+      pendingItems={pendingItems}
+      onSubmit={handleSubmit}
+    />
+  );
+}
+
 const salesOrder = {
-  doctype: 'Sales Order', title: 'Sales order', plural: 'Sales orders', usesFinishedCost: true, subtitle: 'Admin approves. Stock is deducted only when goods are dispatched.',
+  doctype: 'Sales Order',
+  title: 'Sales order',
+  plural: 'Sales orders',
+  usesFinishedCost: true,
+  subtitle: 'Admin approves. Stock is deducted only when goods are dispatched.',
+
   isLocked: (d) => !!d?.status && d.status !== 'Pending Approval',
-  fields: [link('customer', 'Customer', 'Customer', { required: true }), date('order_date', 'Order date'), ro(t('status', 'Status')), sum(cur('total_amount', 'Total'))],
-  tables: [{ name: 'items', label: 'Items', fields: [...salesRow.slice(0, 5), ro(cur('amount', 'Amount')), ro(num('dispatched_qty', 'Dispatched')), ro(num('pending_qty', 'Pending'))], newRow: () => ({ quantity: '', rate: '' }) }],
-  compute: (v, ctx) => salesCalc(v, ctx), banner: belowBanner,
+
+  fields: [
+    link('customer', 'Customer', 'Customer', { required: true }),
+    date('order_date', 'Date'),
+    sum(cur('total_amount', 'Total'))
+  ],
+
+  tables: [{
+    name: 'items',
+    label: 'Items',
+    fields: [
+      ...salesRow.slice(0, 5),
+      ro(cur('final_rate', 'Final rate', { dp: 4 })),
+      ro(cur('amount', 'Amount')),
+      ro(num('dispatched_qty', 'Dispatched')),
+      ro(num('pending_qty', 'Pending')),
+    ],
+    newRow: () => ({ quantity: '', pr: 0, rate: '' }),
+  }],
+
+  compute: (v, ctx) => salesCalc(v, ctx),
+  banner: belowBanner,
+
   header: (v) => {
     const ordered = (v.items || []).reduce((s, r) => s + (Number(r.quantity) || 0), 0);
     const sent = (v.items || []).reduce((s, r) => s + (Number(r.dispatched_qty) || 0), 0);
     return ordered && sent ? (
-      <Stack spacing={0.5}><Typography variant="body2">Dispatched {sent} of {ordered}</Typography><LinearProgress variant="determinate" value={ordered && sent ? Math.min(100, (sent / ordered) * 100) : 0} sx={{ height: 8, borderRadius: 4 }} /></Stack>
+      <Stack spacing={0.5}>
+        <Typography variant="body2">Dispatched {sent} of {ordered}</Typography>
+        <LinearProgress
+          variant="determinate"
+          value={Math.min(100, (sent / ordered) * 100)}
+          sx={{ height: 8, borderRadius: 4 }}
+        />
+      </Stack>
     ) : null;
   },
   validate: (v) => (v.items?.length ? {} : { items: 'Add at least one item' }),
-  columns: [col('name', 'No'), col('customer', 'Customer'), col('order_date', 'Date', 'date'), col('total_amount', 'Total', 'currency'), col('status', 'Status', 'status'), col('below_cost', '', 'flag')],
+  columns: [
+    col('name', 'No'),
+    col('customer', 'Customer'),
+    col('order_date', 'Date', 'date'),
+    col('total_amount', 'Total', 'currency'),
+    workflowStatus,
+  ],
 
   rowActions: [
-    { key: 'approve', label: 'Approve', show: (r, admin) => admin && r.status === 'Pending Approval', run: async (r) => { await runAction('Sales Order', r.name, 'approve'); return `${r.name} approved`; } },
-    { key: 'reject', label: 'Reject', show: (r, admin) => admin && r.status === 'Pending Approval', run: async (r) => { await runAction('Sales Order', r.name, 'reject'); return `${r.name} rejected`; } },
-    { key: 'cancel', label: 'Cancel', show: (r, admin) => admin && r.status !== 'Cancelled', run: async (r) => { await runAction('Sales Order', r.name, 'cancel'); return `${r.name} cancelled`; } },
-    { key: 'dispatch', label: 'Convert to Dispatch', show: (r) => r.status === 'Approved', run: async (r) => { await runAction('Dispatch', null, 'create_from_sales_order', { sales_order: r.name }); return `Dispatch created for ${r.name}`; } },
+    {
+      key: 'approve',
+      label: 'Approve',
+      show: (r, admin) => admin && r.status === 'Pending Approval',
+      run: async (r) => {
+        await runAction('Sales Order', r.name, 'approve');
+        return `${r.name} approved successfully`;
+      },
+    },
+    {
+      key: 'reject',
+      label: 'Reject',
+      show: (r, admin) => admin && r.status === 'Pending Approval',
+      run: async (r) => {
+        const ok = window.confirm(`Reject Sales Order ${r.name}?`);
+        if (!ok) return `${r.name} not rejected.`;
+        await runAction('Sales Order', r.name, 'reject');
+        return `${r.name} rejected.`;
+      },
+    },
+    {
+      key: 'dispatch',
+      label: 'Convert to Dispatch',
+      show: (r) => ['Approved', 'Partially Dispatched'].includes(r.status),
+      run: async (r) => {
+        // 1. Fetch pending items from backend
+        const resp = await runAction('Sales Order', r.name, 'create_dispatch');
+        const pending = resp?.pending_items || [];
+        if (!pending.length) {
+          return 'No pending items to dispatch.';
+        }
+        // 2. Open QtyDialog and wait for user input
+        const result = await openQtyDialog(r.name, pending);
+        // result is null if user cancelled, or the success message string
+        return result ?? 'Dispatch cancelled.';
+      },
+    },
+    {
+      key: 'cancel',
+      label: 'Cancel',
+      show: (r) => !['Completed', 'Cancelled'].includes(r.status),
+      run: async (r) => {
+        const ok = window.confirm(`Cancel Sales Order ${r.name}? This cannot be undone.`);
+        if (!ok) return `Sales Order ${r.name} not cancelled.`;
+        await runAction('Sales Order', r.name, 'cancel');
+        return `Sales Order ${r.name} cancelled.`;
+      },
+    },
   ],
 };
 
 const dispatch = {
-  doctype: 'Dispatch', title: 'Dispatch', plural: 'Dispatches', completable: true, usesFinishedCost: true, subtitle: 'Ship against an approved order. Completing deducts Finished stock.',
+  doctype: 'Dispatch',
+  title: 'Dispatch',
+  plural: 'Dispatches',
+  completable: false,
+  usesFinishedCost: true,
+  subtitle: 'Ship against an approved order. Mark as Dispatched deducts Finished stock.',
   fields: [
     { name: 'sales_order', label: 'Sales order', type: 'link', doctype: 'Sales Order', required: true, readOnlyOnEdit: true, filter: (r) => ['Approved', 'Partially Dispatched'].includes(r.status), minWidth: 240 },
-    ro(t('customer', 'Customer')), date('dispatch_date', 'Dispatch date'), { name: 'remarks', label: 'Vehicle / challan', type: 'textarea' },
+    ro(t('customer', 'Customer')),
+    date('dispatch_date', 'Dispatch date'),
+    { name: 'remarks', label: 'Vehicle / Remarks', type: 'textarea' },
   ],
-  tables: [{ name: 'items', label: 'Order lines', noAdd: true, fields: [ro(t('product', 'Product')), ro(num('ordered_qty', 'Ordered')), ro(num('already_dispatched', 'Already sent')), num('quantity', 'Dispatch now'), ro(cur('unit_cost', 'Cost / unit', { dp: 4 }))] }],
+  tables: [{
+    name: 'items',
+    label: 'Items',
+    noAdd: true,
+    fields: [
+      ro(t('product', 'Product')),
+      ro(num('ordered_qty', 'Ordered')),
+      ro(num('already_dispatched', 'Already sent')),
+      num('quantity', 'Dispatch now', { tooltip: 'Enter quantity to dispatch now (can be less than pending)', onChange: (row, table) => { const ordered = Number(row.ordered_qty) || 0; const already = Number(row.already_dispatched) || 0; const remaining = ordered - already; const qty = Number(row.quantity) || 0; if (qty <= 0) { alert('Quantity must be greater than 0'); row.quantity = ''; } else if (qty > remaining) { alert(`You cannot dispatch ${qty}. Only ${remaining} remaining.`); row.quantity = remaining; } if (table && typeof table.updateRow === 'function') { table.updateRow(row); } } }),
+      ro(cur('unit_cost', 'Cost / unit', { dp: 4 }))
+    ]
+  }],
   loadKey: (v) => v.sales_order || null,
   loadRows: async (v, { finishedCost }) => {
     const so = await getDoc('Sales Order', v.sales_order);
     return {
-      top: { customer: so.customer },
-      tables: { items: so.items.filter((i) => i.quantity - i.dispatched_qty > 0).map((i) => ({ order_item: i.name, product: i.product, ordered_qty: i.quantity, already_dispatched: i.dispatched_qty, quantity: i.quantity - i.dispatched_qty, unit_cost: finishedCost?.[i.product]?.unit_price || 0 })) },
+      top: { sales_order: v.sales_order, customer: so.customer, order_status: so.status },
+      tables: {
+        items: so.items
+          .filter((i) => (Number(i.quantity) || 0) - (Number(i.dispatched_qty) || 0) > 0)
+          .map((i) => ({
+            order_item: i.name,
+            product: i.product,
+            ordered_qty: Number(i.quantity) || 0,
+            already_dispatched: Number(i.dispatched_qty) || 0,
+            quantity: (Number(i.quantity) || 0) - (Number(i.dispatched_qty) || 0),
+            unit_cost: finishedCost?.[i.product]?.unit_price || 0,
+          })),
+      },
     };
   },
+  rowActions: [
+    {
+      key: 'confirm',
+      label: 'Confirm',
+      // Show only for Draft dispatches (not yet confirmed/cancelled)
+      show: (r) => r.dispatch_status === 'Draft' || r.dispatch_status === 'Pending',
+      run: async (r) => {
+        const ok = window.confirm(
+          `Confirm Dispatch ${r.name}? This will deduct stock and cannot be undone.`
+        );
+        if (!ok) return `Dispatch ${r.name} not confirmed.`;
+        await runAction('Dispatch', r.name, 'confirm_dispatch');
+        return `Dispatch ${r.name} confirmed — stock deducted.`;
+      },
+    },
+    {
+      key: 'cancel',
+      label: 'Cancel',
+      // Show only for Draft/Pending dispatches
+      show: (r) => r.dispatch_status === 'Draft' || r.dispatch_status === 'Pending',
+      run: async (r) => {
+        const ok = window.confirm(
+          `Cancel Dispatch ${r.name}? This will not affect inventory.`
+        );
+        if (!ok) return `Dispatch ${r.name} not cancelled.`;
+        await runAction('Dispatch', r.name, 'cancel_dispatch');
+        return `Dispatch ${r.name} cancelled.`;
+      },
+    },
+  ],
   validate: (v) => {
     const e = {};
-    (v.items || []).forEach((r, i) => { if (Number(r.quantity) > Number(r.ordered_qty) - Number(r.already_dispatched) + 1e-9) e[`items.${i}.quantity`] = 'More than remaining'; });
+    (v.items || []).forEach((r, i) => {
+      const remaining = (Number(r.ordered_qty) || 0) - (Number(r.already_dispatched) || 0);
+      if ((Number(r.quantity) || 0) > remaining + 1e-9) {
+        e[`items.${i}.quantity`] = `More than remaining (${remaining})`;
+      }
+      if ((Number(r.quantity) || 0) <= 0) {
+        e[`items.${i}.quantity`] = 'Must be greater than 0';
+      }
+    });
     return e;
   },
-  columns: [col('name', 'No'), col('sales_order', 'Sales order'), col('customer', 'Customer'), col('dispatch_date', 'Date', 'date'), status],
+  columns: [
+    col('name', 'No'),
+    col('sales_order', 'Sales order'),
+    col('customer', 'Customer'),
+    col('dispatch_date', 'Date', 'date'),
+    {
+      field: 'dispatch_status',
+      label: 'Status',
+      type: 'custom',
+      render: (r) => {
+        const statusColors = {
+          Draft: 'default',
+          Pending: 'warning',
+          Dispatched: 'success',
+          Completed: 'success',
+          Cancelled: 'error',
+          'Partially Dispatched': 'info',
+        };
+        return (
+          <Chip
+            size="small"
+            label={r.dispatch_status || 'Draft'}
+            color={statusColors[r.dispatch_status] || 'default'}
+          />
+        );
+      },
+    },
+  ],
 };
 
 const inventory = {

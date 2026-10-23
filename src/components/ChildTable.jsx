@@ -5,7 +5,7 @@ import { useFieldArray, useWatch } from 'react-hook-form';
 import Field from './Field';
 
 /** Editable child table built on useFieldArray. `registry` lets the form replace rows after an API load. */
-export default function ChildTable({ table, control, disabled, registry }) {
+export default function ChildTable({ table, control, disabled, registry, setValue, getValues }) {
   const { fields, append, remove, replace } = useFieldArray({ control, name: table.name, keyName: '_key' });
   registry.current[table.name] = replace;
   const rows = useWatch({ control, name: table.name }) || [];
@@ -31,7 +31,15 @@ export default function ChildTable({ table, control, disabled, registry }) {
                 <TableCell>{i + 1}</TableCell>
                 {table.fields.map((f) => (
                   <TableCell key={f.name} sx={{ py: 0.75 }}>
-                    <Field f={{ ...f, readOnly: f.readOnly || f.readOnlyIf?.(rows[i] || {}) }} name={`${table.name}.${i}.${f.name}`} control={control} disabled={disabled} />
+                    <Field
+                      f={{ ...f, readOnly: f.readOnly || f.readOnlyIf?.(rows[i] || {}) }}
+                      name={`${table.name}.${i}.${f.name}`}
+                      control={control}
+                      disabled={disabled}
+                      rowPath={`${table.name}.${i}`}
+                      setValue={setValue}
+                      getValues={getValues}
+                    />
                   </TableCell>
                 ))}
                 {canEdit && !table.noAdd && (

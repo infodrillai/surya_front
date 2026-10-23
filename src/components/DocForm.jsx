@@ -36,7 +36,7 @@ export default function DocForm({ config, doc, open, onClose }) {
 
   const schema = useMemo(() => buildSchema(config), [config]);
   const form = useForm({ resolver: zodResolver(schema), defaultValues: buildDefaults(config, doc) });
-  const { control, handleSubmit, reset, formState: { errors } } = form;
+  const { control, handleSubmit, reset, setValue, getValues, formState: { errors } } = form;
   const values = useWatch({ control });
   const locked = !!doc?.is_completed || !!config.isLocked?.(doc);
   const isNew = !doc?.name;
@@ -177,7 +177,7 @@ export default function DocForm({ config, doc, open, onClose }) {
     return (
       <Box key={t.name}>
         {err && <Alert severity="error" sx={{ mb: 1.5 }}>{err}</Alert>}
-        <ChildTable table={t} control={control} disabled={locked} registry={registry} />
+        <ChildTable table={t} control={control} disabled={locked} registry={registry} setValue={setValue} getValues={getValues} />
       </Box>
     );
   };

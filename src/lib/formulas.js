@@ -17,11 +17,22 @@ const r9 = (v) => Math.round(v * 1e9) / 1e9;
  * @param {number} carried @param {number} added @param {number} rejectionPercent @param {number} qty @param {number} [tooling]
  * @returns {{base:number, rejectionAmount:number, batchTotal:number, unitCost:number}}
  */
-export function stageTotals(carried, added, rejectionPercent, qty, tooling = 0) {
-  const base = n(carried) + n(added) + n(tooling); // rejection is charged on everything, tooling included
-  const rejectionAmount = (base * n(rejectionPercent)) / 100;
+export function stageTotals(carried, added, rejectionPercent, qty, tooling = 0, rejectionPerPiece = 0) {
+  const base = n(carried) + n(added) + n(tooling);
+  // a per-piece amount overrides the percentage when entered
+  const rejectionAmount = n(rejectionPerPiece) > 0
+    ? n(rejectionPerPiece) * n(qty)
+    : (base * n(rejectionPercent)) / 100;
   const batchTotal = base + rejectionAmount;
-  return { base, rejectionAmount, batchTotal, unitCost: n(qty) ? batchTotal / n(qty) : 0 };
+
+  // Unit cost = cost per GOOD piece (batch total spread only over accepted output)
+  // goodQty = qty × (1 − rejection% / 100)  e.g. 200 × (1 − 4.599/100) = 190.802
+  const goodQty = n(rejectionPercent) > 0
+    ? n(qty) * (1 - n(rejectionPercent) / 100)
+    : n(qty);
+  const effectiveQty = goodQty > 0 ? goodQty : n(qty);
+
+  return { base, rejectionAmount, batchTotal, unitCost: effectiveQty > 0 ? batchTotal / effectiveQty : 0 };
 }
 
 /** Tooling cost = tooling % x (carried cost + the charges marked "in tooling base"). */
@@ -106,34 +117,21 @@ export function stageCalc(stage, v) {
     tooling = toolingAmount(carried, marked, v.tooling_percent);
   }
 
-  // Unit cost without extra cost: used for the next stage.
-  const baseTotals = stageTotals(
-    carried,
-    added,
-    v.rejection_percent,
-    qty,
-    tooling
-  );
+    // `added` already includes extraCostTotal, so don't add it again
+  const addedWithoutExtra = added - extraCostTotal;
 
-  // Current-stage cost including extra cost.
-  const currentTotals = stageTotals(
-    carried,
-    added + extraCostTotal,
-    v.rejection_percent,
-    qty,
-    tooling
-  );
+  const baseTotals = stageTotals(carried, addedWithoutExtra, v.rejection_percent, qty, tooling, v.rejection_per_piece);
+  const currentTotals = stageTotals(carried, added, v.rejection_percent, qty, tooling, v.rejection_per_piece);
 
   const top = {
     carried_cost: carried,
-    added_cost: added + extraCostTotal,
+    added_cost: added,
     extra_cost_total: extraCostTotal,
     rejection_amount: currentTotals.rejectionAmount,
     batch_total: currentTotals.batchTotal,
     unit_cost: currentTotals.unitCost,
     unit_cost_without_extra: baseTotals.unitCost,
   };
-
   if (stage === 3) {
     top.tooling_base = carried + marked;
     top.tooling_amount = tooling;
@@ -172,32 +170,10 @@ export function purchaseCalc(v, { masters, companyState }) {
   };
 }
 
-
-  // quotationTaxCalc implementation moved below
-
-// -------------------------------------------------
-// PR (%) calculation for a Quotation Item
-// -------------------------------------------------
-/**
- * Compute the PR percentage, final rate per unit and amount for a quotation item.
- * Example (as provided by the user):
- *   quantity: 30 kg
- *   rate: ₹35.90/kg (original rate)
- *   additional cost: 10% (₹3.59/kg)
- *   => finalRate = 39.49, amount = 1184.70, pr = 10
- *
- * The function expects an object `item` with at least:
- *   - quantity
- *   - rate (original rate per unit)
- *   - pr (additional cost percent) – if missing, defaults to 0.
- * It returns an object `{ pr, final_rate, amount }` where:
- *   final_rate = rate * (1 + pr/100)
- *   amount      = final_rate * quantity
- */
 export function computeQuotationPR(item) {
   const qty = Number(item.quantity) || 0;
   const rate = Number(item.rate) || 0;
-  const pr = Number(item.pr) || 0; // percentage of additional cost
+  const pr = Number(item.pr) || 0;
   const final_rate = rate * (1 + pr / 100);
   const amount = final_rate * qty;
   return { pr, final_rate, amount };
@@ -223,37 +199,58 @@ export function quotationTaxCalc(v) {
   const gstPercent = Math.max(0, n(v.gst_percent));
   const totalGST = taxableAmount * gstPercent / 100;
 
-  const isIGST = v.gst_type === 'IGST';
-
-  const cgstAmount = isIGST ? 0 : totalGST / 2;
-  const sgstAmount = isIGST ? 0 : totalGST / 2;
-  const igstAmount = isIGST ? totalGST : 0;
+  //const isIGST = v.gst_type === 'IGST';
 
   return {
     subtotal,
     discount_amount: discountAmount,
     taxable_amount: taxableAmount,
-    cgst_amount: cgstAmount,
-    sgst_amount: sgstAmount,
-    igst_amount: igstAmount,
     total_amount: subtotal,
     grand_total: taxableAmount + totalGST,
   };
 }
 
-
-
 /** Quotation / Sales Order preview. Below cost = rate < Finished unit cost. */
-export function salesCalc(v, { masters, finishedCost }) {
+export function salesCalc(v, { masters = {}, finishedCost = {} } = {}) {
   let total = 0;
   let below = 0;
+
   const items = (v.items || []).map((r) => {
-    const cost = n(finishedCost?.[r.product]?.unit_price);
-    const amount = n(r.quantity) * n(r.rate);
-    const isBelow = n(r.rate) < cost && !!r.product ? 1 : 0;
+    const cost = n(
+      finishedCost?.[r.product]?.unit_price ?? r.production_cost
+    );
+
+    // Use entered rate when available; otherwise use production cost.
+    const rate = r.rate !== undefined && r.rate !== null && r.rate !== ''
+      ? n(r.rate)
+      : cost;
+
+    const pr = n(r.pr);
+    const final_rate = rate * (1 + pr / 100);
+    const amount = n(r.quantity) * final_rate;
+
+    const isBelow = !!r.product && rate < cost ? 1 : 0;
+
     total += amount;
     below = below || isBelow;
-    return { amount, uom: masters.Product?.[r.product]?.uom || '', production_cost: cost, below_cost: isBelow, pending_qty: n(r.quantity) - n(r.dispatched_qty) };
+
+    return {
+      ...r,
+      rate,
+      final_rate,
+      amount,
+      uom: masters?.Product?.[r.product]?.uom || r.uom || '',
+      production_cost: cost,
+      below_cost: isBelow,
+      pending_qty: n(r.quantity) - n(r.dispatched_qty),
+    };
   });
-  return { top: { total_amount: total, below_cost: below }, rows: { items } };
+
+  return {
+    top: {
+      total_amount: total,
+      below_cost: below,
+    },
+    rows: { items },
+  };
 }
