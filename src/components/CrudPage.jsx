@@ -9,7 +9,8 @@ import {
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { deleteDoc, getDoc, getList, runAction } from '../api/client';
 import { db } from '../db/dexie';
 import { reloadMasters } from '../db/masterCache';
@@ -20,11 +21,26 @@ import DocForm from './DocForm';
 
 const STATUS_COLOR = { Approved: 'info', 'Partially Dispatched': 'warning', Completed: 'success', Accepted: 'success', Rejected: 'error', Superseded: 'default', Sent: 'info' };
 
+const DISPATCH_STATUS_COLOR = {
+  Draft: 'default',
+  'Pending Confirmation': 'warning',
+  Dispatched: 'success',
+  Cancelled: 'error',
+};
+
+const RETURN_STATUS_COLOR = {
+  Draft: 'default',
+  Confirmed: 'success',
+  Cancelled: 'error',
+};
+
 function Cell({ col, row }) {
   const v = row[col.field];
   if (col.type === 'doc-status')
     return <Chip size="small" color={row.is_completed ? 'success' : 'default'} label={row.is_completed ? 'Completed' : 'Draft'} />;
   if (col.type === 'status') return <Chip size="small" color={STATUS_COLOR[v] || 'default'} variant={v === 'Pending Approval' ? 'outlined' : 'filled'} label={v} />;
+  if (col.type === 'dispatch-status') return <Chip size="small" color={DISPATCH_STATUS_COLOR[v] || 'default'} label={v || 'Draft'} />;
+  if (col.type === 'return-status') return <Chip size="small" color={RETURN_STATUS_COLOR[v] || 'default'} label={v || 'Draft'} />;
   if (col.type === 'currency') return fmtMoney(v, col.dp ?? 2);
   if (col.type === 'number') return fmtNum(v, col.dp ?? 3);
   if (col.type === 'date') return fmtDate(v);
@@ -73,6 +89,19 @@ export default function CrudPage({ config, embedded = false }) {
   const openRow = async (row) => setEditing(config.master ? { ...row, ...(config.companion ? await config.companion.load(row) : {}) } : await getDoc(config.doctype, row.name));
   const isLocked = (r) => !!r.is_completed || !!config.isLocked?.(r);
   const pageRows = rows.slice(page * perPage, page * perPage + perPage);
+
+  // Auto-open a record when navigated here with ?open=<name> (e.g. from Convert to Dispatch)
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const openName = searchParams.get('open');
+    if (!openName) return;
+    // Remove the param so browser back works cleanly
+    setSearchParams({}, { replace: true });
+    getDoc(config.doctype, openName)
+      .then((doc) => setEditing(doc))
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Box>

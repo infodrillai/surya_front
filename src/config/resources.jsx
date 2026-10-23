@@ -4,12 +4,16 @@
  *   readOnly?:boolean,readOnlyOnEdit?:boolean,summary?:boolean,positive?:boolean,showIf?:Function,options?:string[]}} FieldConfig
  */
 import React from 'react';
-import { LinearProgress, Stack, Typography, Chip } from '@mui/material';
+import { Box, Button, Chip, LinearProgress, Stack, Typography } from '@mui/material';
+import AssignmentReturnIcon from '@mui/icons-material/AssignmentReturn';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { call, deleteDoc, getDoc, insertDoc, runAction, updateDoc } from '../api/client';
 import { db } from '../db/dexie';
 import { purchaseCalc, salesCalc, stageCalc, computeQuotationPR } from '../lib/formulas';
 import QtyDialog from '../components/QtyDialog';
+import ReturnDialog from '../components/ReturnDialog';
 import { todayISO } from '../lib/format';
+import QuotationVersionBar, { openQuotation } from '../components/QuotationVersionBar';
 
 // ---- field helpers ---------------------------------------------------------
 const t = (name, label, x = {}) => ({ name, label, type: 'text', ...x });
@@ -37,7 +41,7 @@ const simple = (doctype, nameField, title, x = {}) => ({
 });
 const contact = [t('gstin', 'GSTIN'), t('state', 'State'), t('phone', 'Phone'), { name: 'address', label: 'Address', type: 'textarea' }];
 const contactCols = [col('name', 'Name'), col('gstin', 'GSTIN'), col('state', 'State'), col('phone', 'Phone')];
-const customerCols = [col('name', 'Name'), col('gstin', 'GSTIN'), col('city', 'City'), col('phone', 'Phone'), col('total_outstanding', 'Outstanding', 'currency')];
+const customerCols = [col('name', 'Name'), col('gstin', 'GSTIN'), col('city', 'City'), col('mobile', 'Mobile'), col('total_outstanding', 'Outstanding', 'currency')];
 
 const uom = { ...simple('UOM', 'uom_name', 'UOM'), plural: 'Units of measure' };
 const process = { ...simple('Process', 'process_name', 'Process'), plural: 'Processes' };
@@ -52,7 +56,6 @@ const customer = {
     t('customer_name', 'Customer name', { required: true, readOnlyOnEdit: true }),
     t('gstin', 'GSTIN'),
     t('pan', 'PAN'),
-    t('phone', 'Phone'),
     t('mobile', 'Mobile'),
     t('email', 'Email'),
     t('city', 'City'),
@@ -65,7 +68,6 @@ const customer = {
 
 
 // ---- Product (with its BOM inside) -----------------------------------------
-// The BOM is no longer a separate screen: it is saved as the product's own BOM document.
 const raw = (r) => r.product_type === 'Raw';
 const bomRow = (extra = []) => [link('process', 'Process', 'Process'), link('product', 'Raw material', 'Product', { filter: raw, required: true, minWidth: 220 }), num('per_unit_utilization', 'Per-unit utilization', { positive: true }), ...extra];
 const BOM_TABLES = ['stage1_items', 'stage2_items', 'stage3_charges'];
@@ -215,7 +217,6 @@ const stageConfig = (stage) => ({
     link('product', stage === 3 ? 'Finished product' : 'Product to produce', 'Product', { required: true, minWidth: 240, filter: (r) => r.product_type !== 'Raw' && Number(r.total_steps) >= stage }),
     num('quantity', 'Quantity produced', { positive: true }), date('posting_date', 'Date'),
     ...(stage === 1 ? [num('weight_per_piece', 'Weight per piece', { positive: true }), ro(num('wastage_qty', 'Wastage (to scrap)', { dp: 4 }))] : []),
-    // Stage 3: tooling % is typed by hand and works on carried cost + the charges ticked "In tooling base"
     ...(stage === 3 ? [num('tooling_percent', 'Tooling cost %', { max: 100 }), ro(cur('tooling_base', 'Tooling base (carried + ticked charges)', { minWidth: 220 }))] : []),
     num('rejection_percent', stage === 3 ? 'Rejection % (on everything)' : 'Rejection %', { max: 99.99 }),
     sum(cur('carried_cost', 'Carried cost')), sum(cur('added_cost', 'Added cost')),
@@ -299,8 +300,6 @@ const salesRow = [
 ];
 
 // ---- Quotation-specific row ---------------------------------------------------
-// Rate is READ-ONLY and auto-derived: Rate = Cost/unit × (1 + PR%)
-// Amount = Qty × Rate
 const quotationLineCalc = (row) => {
   const cost = Number(row.production_cost) || 0;
   const pr = Number(row.pr) || 0;
@@ -351,15 +350,56 @@ const quotation = {
     link('customer', 'Customer', 'Customer', { required: true }),
     date('quotation_date', 'Date'),
 
-    // ---- Summary section (order = display order) ----
+    // ---- Summary panel (order = display order) ----
     sum(cur('subtotal', 'Subtotal')),
-    { ...num('discount_percent', 'Discount (%)', { max: 100 }), summary: true },  // editable
+    { ...num('discount_percent', 'Discount (%)', { max: 100, default: () => 0 }), summary: true, editable: true },
     sum(cur('discount_amount', 'Discount Amount')),
-    //sum(cur('taxable_amount', 'Taxable Amount')),
-    { ...num('gst_percent', 'GST (%)', { max: 100 }), summary: true },            // editable
+    { ...num('gst_percent', 'GST (%)', { max: 100, default: () => 18 }), summary: true, editable: true },
     sum(cur('tax_amount', 'GST Amount')),
     sum(cur('grand_total', 'Grand Total')),
   ],
+  summaryTitle: 'Quotation Summary',
+  summaryColumns: 6,
+
+
+  // Show version badge and previous quotation link inside the form header
+  header: (v, doc) => {
+    if (!doc?.name ? <QuotationVersionBar doc={doc} /> : null);
+    const version = doc?.version || v?.version;
+    const prevVersion = doc?.previous_version || v?.previous_version;
+    const parentQuotation = doc?.parent_quotation || v?.parent_quotation;
+    return (
+      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center', mb: 0.5 }}>
+        {version && (
+          <Chip
+            size="small"
+            label={`Version ${version}`}
+            color="info"
+            variant="outlined"
+          />
+        )}
+        {prevVersion && (
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<OpenInNewIcon fontSize="small" />}
+            onClick={() => window.open(`/quotation?open=${encodeURIComponent(prevVersion)}`, '_blank')}
+            sx={{ fontSize: 11, py: 0.25 }}
+          >
+            Previous: {prevVersion}
+          </Button>
+        )}
+        {parentQuotation && parentQuotation !== prevVersion && (
+          <Chip
+            size="small"
+            label={`Parent: ${parentQuotation}`}
+            variant="outlined"
+            color="default"
+          />
+        )}
+      </Box>
+    );
+  },
 
   tables: [{
     name: 'items',
@@ -433,7 +473,7 @@ const quotation = {
     col('name', 'No'),
     col('customer', 'Customer'),
     col('quotation_date', 'Date', 'date'),
-    col('total_amount', 'Grand total', 'currency'),
+    col('grand_total', 'Grand Total', 'currency'),
     col('status', 'Status', 'status'),
   ],
 
@@ -441,10 +481,15 @@ const quotation = {
   rowActions: [
     {
       key: 'revise',
-      label: 'Revise',
-      show: (r) => r.status !== 'Superseded',
-      run: async (r) =>
-        `Created ${(await runAction('Quotation', r.name, 'revise')).result}`
+      label: 'Revise Quotation',
+      show: (r) => !['Superseded', 'Accepted'].includes(r.status),
+      run: async (r) => {
+        const resp = await runAction('Quotation', r.name, 'revise');
+        const newName = resp?.result;
+        if (newName) openQuotation(newName);
+        return newName ? `Revision ${newName} created.` : 'Revision created.';
+      },
+
     },
     {
       key: 'approve',
@@ -516,7 +561,11 @@ export function SalesOrderQtyDialogHost() {
 
   const handleSubmit = async (items) => {
     const result = await runAction('Sales Order', orderId, 'create_dispatch_from_sales_order', { items });
-    return `Dispatch ${result?.name ?? result?.result ?? ''} created for ${orderId}`;
+    const dispatchName = result?.name;
+    if (dispatchName) {
+      return `Dispatch ${dispatchName} created successfully.`;
+    }
+    return result?.result ?? 'Dispatch created.';
   };
 
   return (
@@ -542,7 +591,13 @@ const salesOrder = {
   fields: [
     link('customer', 'Customer', 'Customer', { required: true }),
     date('order_date', 'Date'),
-    sum(cur('total_amount', 'Total'))
+    // Editable discount and GST — inherited from Quotation but can be adjusted on the SO
+    sum(cur('subtotal', 'Subtotal')),
+    num('discount_percent', 'Discount (%)', { max: 100, default: () => 0, summary: true, editable: true }),
+    sum(cur('discount_amount', 'Discount Amount')),
+    num('gst_percent', 'GST (%)', { max: 100, default: () => 18, summary: true, editable: true }),
+    sum(cur('tax_amount', 'GST Amount')),
+    sum(cur('grand_total', 'Grand Total')),
   ],
 
   tables: [{
@@ -553,12 +608,36 @@ const salesOrder = {
       ro(cur('final_rate', 'Final rate', { dp: 4 })),
       ro(cur('amount', 'Amount')),
       ro(num('dispatched_qty', 'Dispatched')),
+      ro(num('returned_qty', 'Returned')),
+      ro(num('net_delivered_qty', 'Delivered')),
       ro(num('pending_qty', 'Pending')),
     ],
     newRow: () => ({ quantity: '', pr: 0, rate: '' }),
   }],
 
-  compute: (v, ctx) => salesCalc(v, ctx),
+  compute: (v, ctx) => {
+    // Use salesCalc as base then recompute totals with discount/GST
+    const base = salesCalc(v, ctx);
+    const items = base.rows?.items || v.items || [];
+    const subtotal = items.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const discountPct = Math.min(100, Math.max(0, Number(v.discount_percent) || 0));
+    const discountAmt = subtotal * discountPct / 100;
+    const taxableAmt = Math.max(0, subtotal - discountAmt);
+    const gstPct = Math.min(100, Math.max(0, Number(v.gst_percent) || 0));
+    const taxAmt = taxableAmt * gstPct / 100;
+    return {
+      top: {
+        ...base.top,
+        subtotal,
+        total_amount: subtotal,
+        discount_amount: discountAmt,
+        taxable_amount: taxableAmt,
+        tax_amount: taxAmt,
+        grand_total: taxableAmt + taxAmt,
+      },
+      rows: { items },
+    };
+  },
   banner: belowBanner,
 
   header: (v) => {
@@ -580,7 +659,7 @@ const salesOrder = {
     col('name', 'No'),
     col('customer', 'Customer'),
     col('order_date', 'Date', 'date'),
-    col('total_amount', 'Total', 'currency'),
+    col('grand_total', 'Grand Total', 'currency'),
     workflowStatus,
   ],
 
@@ -614,7 +693,7 @@ const salesOrder = {
         const resp = await runAction('Sales Order', r.name, 'create_dispatch');
         const pending = resp?.pending_items || [];
         if (!pending.length) {
-          return 'No pending items to dispatch.';
+          return 'All items have already been fully dispatched.';
         }
         // 2. Open QtyDialog and wait for user input
         const result = await openQtyDialog(r.name, pending);
@@ -635,6 +714,45 @@ const salesOrder = {
     },
   ],
 };
+
+// ---- Return dialog state (shared) ------------------------------------------
+let _returnDialogOpen = false;
+let _returnDispatchName = '';
+let _returnResolver = null;
+
+function openReturnDialog(dispatchName) {
+  return new Promise((resolve) => {
+    _returnDialogOpen = true;
+    _returnDispatchName = dispatchName;
+    _returnResolver = resolve;
+    window.dispatchEvent(new CustomEvent('return-dialog-open'));
+  });
+}
+
+/** Mount once in App.jsx alongside SalesOrderQtyDialogHost. */
+export function ReturnDialogHost() {
+  const [open, setOpen] = React.useState(false);
+  const [dispatchName, setDispatchName] = React.useState('');
+
+  React.useEffect(() => {
+    const handler = () => {
+      setOpen(true);
+      setDispatchName(_returnDispatchName);
+    };
+    window.addEventListener('return-dialog-open', handler);
+    return () => window.removeEventListener('return-dialog-open', handler);
+  }, []);
+
+  const handleClose = (result) => {
+    setOpen(false);
+    if (_returnResolver) {
+      _returnResolver(result);
+      _returnResolver = null;
+    }
+  };
+
+  return <ReturnDialog open={open} dispatchName={dispatchName} onClose={handleClose} />;
+}
 
 const dispatch = {
   doctype: 'Dispatch',
@@ -684,11 +802,10 @@ const dispatch = {
     {
       key: 'confirm',
       label: 'Confirm',
-      // Show only for Draft dispatches (not yet confirmed/cancelled)
-      show: (r) => r.dispatch_status === 'Draft' || r.dispatch_status === 'Pending',
+      show: (r) => r.dispatch_status === 'Draft' || r.dispatch_status === 'Pending Confirmation',
       run: async (r) => {
         const ok = window.confirm(
-          `Confirm Dispatch ${r.name}? This will deduct stock and cannot be undone.`
+          `Confirm Dispatch ${r.name}? This will deduct stock and cannot be undone easily.`
         );
         if (!ok) return `Dispatch ${r.name} not confirmed.`;
         await runAction('Dispatch', r.name, 'confirm_dispatch');
@@ -696,17 +813,29 @@ const dispatch = {
       },
     },
     {
+      key: 'return',
+      label: 'Return',
+      show: (r) => r.dispatch_status === 'Dispatched',
+      run: async (r) => {
+        const result = await openReturnDialog(r.name);
+        return result ?? 'Return cancelled.';
+      },
+    },
+    {
       key: 'cancel',
       label: 'Cancel',
-      // Show only for Draft/Pending dispatches
-      show: (r) => r.dispatch_status === 'Draft' || r.dispatch_status === 'Pending',
+      show: (r) => ['Draft', 'Pending Confirmation', 'Dispatched'].includes(r.dispatch_status),
       run: async (r) => {
-        const ok = window.confirm(
-          `Cancel Dispatch ${r.name}? This will not affect inventory.`
-        );
+        const isConfirmed = r.dispatch_status === 'Dispatched';
+        const msg = isConfirmed
+          ? `Cancel CONFIRMED Dispatch ${r.name}? This will REVERSE stock deductions. This requires admin rights.`
+          : `Cancel Draft Dispatch ${r.name}? This will not affect inventory.`;
+        const ok = window.confirm(msg);
         if (!ok) return `Dispatch ${r.name} not cancelled.`;
         await runAction('Dispatch', r.name, 'cancel_dispatch');
-        return `Dispatch ${r.name} cancelled.`;
+        return isConfirmed
+          ? `Dispatch ${r.name} cancelled — stock restored.`
+          : `Dispatch ${r.name} cancelled.`;
       },
     },
   ],
@@ -728,26 +857,104 @@ const dispatch = {
     col('sales_order', 'Sales order'),
     col('customer', 'Customer'),
     col('dispatch_date', 'Date', 'date'),
+    col('dispatch_status', 'Status', 'dispatch-status'),
+    col('grand_total', 'Grand Total', 'currency'),
+    
+  ],
+};
+
+// ---- Customer Return ---------------------------------------------------------
+const RETURN_STATUS_COLOR = {
+  Draft: 'default',
+  Confirmed: 'success',
+  Cancelled: 'error',
+};
+
+const customerReturn = {
+  doctype: 'Customer Return',
+  title: 'Customer Return',
+  plural: 'Customer Returns',
+  subtitle: 'Physical goods returned by customer against a confirmed dispatch.',
+
+  isLocked: (d) => ['Confirmed', 'Cancelled'].includes(d?.return_status),
+
+  fields: [
     {
-      field: 'dispatch_status',
-      label: 'Status',
-      type: 'custom',
-      render: (r) => {
-        const statusColors = {
-          Draft: 'default',
-          Pending: 'warning',
-          Dispatched: 'success',
-          Completed: 'success',
-          Cancelled: 'error',
-          'Partially Dispatched': 'info',
-        };
-        return (
-          <Chip
-            size="small"
-            label={r.dispatch_status || 'Draft'}
-            color={statusColors[r.dispatch_status] || 'default'}
-          />
+      name: 'dispatch', label: 'Dispatch', type: 'link', doctype: 'Dispatch', required: true, readOnlyOnEdit: true,
+      filter: (r) => r.dispatch_status === 'Dispatched', minWidth: 240
+    },
+    ro(t('sales_order', 'Sales Order')),
+    ro(t('customer', 'Customer')),
+    date('return_date', 'Return Date'),
+    { name: 'return_reason', label: 'Return Reason', type: 'textarea', required: true },
+    { name: 'remarks', label: 'Remarks', type: 'textarea' },
+  ],
+
+  tables: [{
+    name: 'items',
+    label: 'Items',
+    noAdd: true,
+    fields: [
+      ro(t('product', 'Product')),
+      ro(num('dispatched_qty', 'Dispatched')),
+      ro(num('already_returned', 'Already Returned')),
+      ro(num('returnable_qty', 'Returnable')),
+      num('return_qty', 'Return Qty', { positive: true }),
+      sel('condition', 'Condition', ['Usable', 'Damaged', 'Requires Inspection']),
+    ],
+  }],
+
+  validate: (v) => {
+    const e = {};
+    if (!v.return_reason?.trim()) e.return_reason = 'Return reason is required';
+    (v.items || []).forEach((r, i) => {
+      if ((Number(r.return_qty) || 0) <= 0) {
+        e[`items.${i}.return_qty`] = 'Must be > 0';
+      }
+      if ((Number(r.return_qty) || 0) > (Number(r.returnable_qty) || 0) + 1e-9) {
+        e[`items.${i}.return_qty`] = `Max returnable: ${r.returnable_qty}`;
+      }
+    });
+    return e;
+  },
+
+  columns: [
+    col('name', 'No'),
+    col('dispatch', 'Dispatch'),
+    col('customer', 'Customer'),
+    col('return_date', 'Date', 'date'),
+    col('return_status', 'Status', 'return-status'),
+  ],
+
+  rowActions: [
+    {
+      key: 'confirm',
+      label: 'Confirm Return',
+      show: (r) => r.return_status === 'Draft',
+      run: async (r) => {
+        const ok = window.confirm(
+          `Confirm Return ${r.name}? This will add usable goods back to Finished stock and move damaged goods to the Damaged location.`
         );
+        if (!ok) return `Return ${r.name} not confirmed.`;
+        await runAction('Customer Return', r.name, 'confirm_return');
+        return `Return ${r.name} confirmed — stock updated.`;
+      },
+    },
+    {
+      key: 'cancel',
+      label: 'Cancel',
+      show: (r) => ['Draft', 'Confirmed'].includes(r.return_status),
+      run: async (r) => {
+        const isConfirmed = r.return_status === 'Confirmed';
+        const msg = isConfirmed
+          ? `Cancel CONFIRMED Return ${r.name}? This will REVERSE stock changes. Requires admin.`
+          : `Cancel Draft Return ${r.name}?`;
+        const ok = window.confirm(msg);
+        if (!ok) return `Return ${r.name} not cancelled.`;
+        await runAction('Customer Return', r.name, 'cancel_return');
+        return isConfirmed
+          ? `Return ${r.name} cancelled — stock reversed.`
+          : `Return ${r.name} cancelled.`;
       },
     },
   ],
@@ -762,5 +969,5 @@ const inventory = {
 export const RESOURCES = {
   '/uom': uom, '/product': product, '/category': category, '/process': process, '/purchase': purchase,
   '/quotation': quotation, '/sales-order': salesOrder, '/vendor': vendor, '/customer': customer,
-  '/charge': charge, '/dispatch': dispatch,
+  '/charge': charge, '/dispatch': dispatch, '/customer-return': customerReturn,
 };

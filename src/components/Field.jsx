@@ -64,9 +64,6 @@ function ServerLink({ f, rf, error, disabled, rowPath, setValue, getValues }) {
   return <LinkInput {...{ f, rf, error, disabled, options, labels: {}, rowPath, setValue, getValues }} />;
 }
 
-/** One form control, driven by the field config. `name` is the react-hook-form path.
- * `rowPath` + `setValue` + `getValues` are forwarded from ChildTable so that
- * link-field onChange handlers can update sibling cells in the same row. */
 export default function Field({ f, name, control, disabled, rowPath, setValue, getValues }) {
   return (
     <Controller

@@ -234,8 +234,26 @@ export default function DocForm({ config, doc, open, onClose }) {
           {summary.length > 0 && (
             <Paper variant="outlined" sx={{ p: 2, bgcolor: '#eef6f4' }}>
               <Typography variant="subtitle2" sx={{ mb: 1.5 }}>{config.summaryTitle || 'Summary'}</Typography>
-              <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: `repeat(${Math.min(summary.length, 6)}, 1fr)` } }}>
-                {summary.map((f) => <Field key={f.name} f={{ ...f, readOnly: true }} name={f.name} control={control} />)}
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 2,
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    sm: 'repeat(2, 1fr)',
+                    md: `repeat(${config.summaryColumns || Math.min(summary.length, 6)}, 1fr)`,
+                  },
+                }}
+              >
+                {summary.map((f) => (
+                  <Field
+                    key={f.name}
+                    f={{ ...f, readOnly: f.editable ? false : true }}
+                    name={f.name}
+                    control={control}
+                    disabled={locked}
+                  />
+                ))}
               </Box>
             </Paper>
           )}

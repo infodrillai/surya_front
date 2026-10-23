@@ -10,7 +10,6 @@ import ReceiptIcon from '@mui/icons-material/ReceiptLongOutlined';
 import RequestQuoteIcon from '@mui/icons-material/RequestQuoteOutlined';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCartOutlined';
 import StraightenIcon from '@mui/icons-material/StraightenOutlined';
-import SummarizeIcon from '@mui/icons-material/AccountTreeOutlined';
 import TuneIcon from '@mui/icons-material/TuneOutlined';
 import WarehouseIcon from '@mui/icons-material/WarehouseOutlined';
 
@@ -40,6 +39,7 @@ export const MENU = [
       { label: 'Charge', path: '/charge', icon: DescriptionIcon, roles: [PROD] },
       { label: 'Inventory', path: '/inventory', icon: WarehouseIcon, roles: [STORE, PROD] },
       { label: 'Dispatch', path: '/dispatch', icon: LocalShippingIcon, roles: [STORE, SALES] },
+      { label: 'Returns', path: '/customer-return', icon: ReceiptIcon, roles: [STORE, SALES] },
     ],
   },
 ];
