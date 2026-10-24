@@ -39,6 +39,7 @@ export const MENU = [
       { label: 'Charge', path: '/charge', icon: DescriptionIcon, roles: [PROD] },
       { label: 'Inventory', path: '/inventory', icon: WarehouseIcon, roles: [STORE, PROD] },
       { label: 'Dispatch', path: '/dispatch', icon: LocalShippingIcon, roles: [STORE, SALES] },
+      { label: 'Goods Receipt', path: '/goods-receipt', icon: ReceiptIcon, roles: [STORE] },
       { label: 'Returns', path: '/customer-return', icon: ReceiptIcon, roles: [STORE, SALES] },
     ],
   },

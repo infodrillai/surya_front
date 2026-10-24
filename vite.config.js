@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
@@ -28,28 +28,35 @@ function syncToFrappeWww() {
   };
 }
 
-export default defineConfig({
-  base: '/assets/clssurya/surya/',
-  plugins: [react(), syncToFrappeWww()],
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:8001',
-        changeOrigin: true,
-        headers: { 'X-Frappe-Site-Name': 'surya.local' },
-      },
-      '/socket.io': {
-        target: 'http://127.0.0.1:9001',
-        ws: true,
-        changeOrigin: true,
+export default defineConfig(({ command, mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const backendPort = env.BACKEND_PORT || '8000';
+  const socketPort = env.SOCKET_PORT || '9000';
+  const siteName = env.VITE_SITE_NAME || 'clssurya.local';
+
+  return {
+    base: command === 'serve' ? '/' : '/assets/clssurya/surya/',
+    plugins: [react(), syncToFrappeWww()],
+    server: {
+      port: 5173,
+      proxy: {
+        '/api': {
+          target: `http://127.0.0.1:${backendPort}`,
+          changeOrigin: true,
+          headers: { 'X-Frappe-Site-Name': siteName },
+        },
+        '/socket.io': {
+          target: `http://127.0.0.1:${socketPort}`,
+          ws: true,
+          changeOrigin: true,
+        },
       },
     },
-  },
-  build: {
-    outDir: path.resolve(getAppDir(), 'public/surya'),
-    emptyOutDir: true,
-    chunkSizeWarningLimit: 1500,
-  },
-  test: { environment: 'node' },
+    build: {
+      outDir: path.resolve(getAppDir(), 'public/surya'),
+      emptyOutDir: true,
+      chunkSizeWarningLimit: 1500,
+    },
+    test: { environment: 'node' },
+  };
 });

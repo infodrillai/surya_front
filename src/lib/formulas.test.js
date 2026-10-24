@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allocateExtra, splitGst, stage1Wastage, stageCalc, stageTotals } from './formulas';
+import { allocateExtra, purchaseCalc, splitGst, stage1Wastage, stageCalc, stageTotals } from './formulas';
 
 describe('costing examples from the plan', () => {
   it('Stage 1: 10 kg @ 250, 5% rejection, 99 pcs x 0.1 kg', () => {
@@ -10,7 +10,8 @@ describe('costing examples from the plan', () => {
     expect(r.top.added_cost).toBeCloseTo(2500, 6);
     expect(r.top.rejection_amount).toBeCloseTo(125, 6);
     expect(r.top.batch_total).toBeCloseTo(2625, 6);
-    expect(r.top.unit_cost).toBeCloseTo(26.5152, 4);
+    // Unit cost spread over accepted output: 2625 / (99 * 0.95)
+    expect(r.top.unit_cost).toBeCloseTo(27.9107, 4);
     expect(r.top.wastage_qty).toBeCloseTo(0.1, 6);
   });
 
@@ -26,7 +27,8 @@ describe('costing examples from the plan', () => {
     expect(r.top.added_cost).toBeCloseTo(400, 6);
     expect(r.top.rejection_amount).toBeCloseTo(152.576, 3);
     expect(r.top.batch_total).toBeCloseTo(3204.096, 3);
-    expect(r.top.unit_cost).toBeCloseTo(32.04096, 5);
+    // Unit cost spread over accepted output: 3204.096 / (100 * 0.95)
+    expect(r.top.unit_cost).toBeCloseTo(33.7273, 4);
   });
 
   it('Stage 3 adds charges per unit x qty', () => {
@@ -48,4 +50,32 @@ describe('helpers', () => {
   it('allocates extra charges by value', () => expect(allocateExtra([100, 300], 40)).toEqual([10, 30]));
   it('zero quantity gives zero unit cost', () => expect(stageTotals(0, 100, 5, 0).unitCost).toBe(0));
   it('wastage is rounded to 9 dp', () => expect(stage1Wastage(10, 99, 0.1)).toBe(0.1));
+
+  it('purchaseCalc computes totals, pending qty, gst and landed rates', () => {
+    const res = purchaseCalc({
+      vendor: 'VEND-01',
+      extra_charges: 100,
+      items: [
+        { product: 'P1', quantity: 100, rate: 300, received_qty: 60, gst_percent: 18, extra_charge: 50 },
+      ],
+    }, {
+      masters: {
+        Vendor: { 'VEND-01': { state: 'Gujarat' } },
+        Company: { default: { default_state: 'Gujarat' } },
+        Product: { P1: { uom: 'Kg' } },
+      },
+    });
+
+    expect(res.top.total_ordered_qty).toBe(100);
+    expect(res.top.total_received_qty).toBe(60);
+    expect(res.top.total_pending_qty).toBe(40);
+    expect(res.top.taxable_amount).toBe(30000);
+    expect(res.top.tax_amount).toBe(5400); // 18% of 30,000 (CGST 2700 + SGST 2700)
+    expect(res.rows.items[0].pending_qty).toBe(40);
+    expect(res.rows.items[0].cgst).toBe(2700);
+    expect(res.rows.items[0].sgst).toBe(2700);
+    // Landed rate: (30000 + 50 + 100) / 100 = 301.5
+    expect(res.rows.items[0].landed_rate).toBeCloseTo(301.5, 4);
+  });
 });
+

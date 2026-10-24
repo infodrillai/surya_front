@@ -34,6 +34,20 @@ const RETURN_STATUS_COLOR = {
   Cancelled: 'error',
 };
 
+const PURCHASE_STATUS_COLOR = {
+  Draft: 'default',
+  Ordered: 'info',
+  'Partially Received': 'warning',
+  Received: 'success',
+  Cancelled: 'error',
+};
+
+const RECEIPT_STATUS_COLOR = {
+  Draft: 'default',
+  Confirmed: 'success',
+  Cancelled: 'error',
+};
+
 function Cell({ col, row }) {
   const v = row[col.field];
   if (col.type === 'doc-status')
@@ -41,6 +55,8 @@ function Cell({ col, row }) {
   if (col.type === 'status') return <Chip size="small" color={STATUS_COLOR[v] || 'default'} variant={v === 'Pending Approval' ? 'outlined' : 'filled'} label={v} />;
   if (col.type === 'dispatch-status') return <Chip size="small" color={DISPATCH_STATUS_COLOR[v] || 'default'} label={v || 'Draft'} />;
   if (col.type === 'return-status') return <Chip size="small" color={RETURN_STATUS_COLOR[v] || 'default'} label={v || 'Draft'} />;
+  if (col.type === 'purchase-status') return <Chip size="small" color={PURCHASE_STATUS_COLOR[v] || (row.is_completed ? 'success' : 'default')} label={v || (row.is_completed ? 'Received' : 'Draft')} />;
+  if (col.type === 'receipt-status') return <Chip size="small" color={RECEIPT_STATUS_COLOR[v] || 'default'} label={v || 'Draft'} />;
   if (col.type === 'currency') return fmtMoney(v, col.dp ?? 2);
   if (col.type === 'number') return fmtNum(v, col.dp ?? 3);
   if (col.type === 'date') return fmtDate(v);

@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import CrudPage from './components/CrudPage';
-import { RESOURCES, SalesOrderQtyDialogHost, ReturnDialogHost } from './config/resources';
+import { RESOURCES, SalesOrderQtyDialogHost, ReturnDialogHost, GoodsReceiptDialogHost } from './config/resources';
 import { MENU } from './config/menu';
 import { prepareCache, syncMasters } from './db/masterCache';
 import { startRealtime, stopRealtime } from './db/realtime';
@@ -74,6 +74,7 @@ export default function App() {
       {status === 'loading' ? <Loading text="Starting…" /> : status === 'anon' ? <Login /> : <Shell />}
       <SalesOrderQtyDialogHost />
       <ReturnDialogHost />
+      <GoodsReceiptDialogHost />
       <Snackbar key={toast?.key} open={!!toast} autoHideDuration={4500} onClose={clearToast} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
         {toast ? <Alert severity={toast.severity} variant="filled" onClose={clearToast} sx={{ whiteSpace: 'pre-line' }}>{toast.message}</Alert> : undefined}
       </Snackbar>

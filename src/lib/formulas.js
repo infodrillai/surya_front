@@ -145,18 +145,34 @@ export function stageCalc(stage, v) {
 }
 
 /** Live preview for Purchase Entry. @param {object} v @param {{masters:object, companyState:string}} ctx */
-export function purchaseCalc(v, { masters, companyState }) {
+export function purchaseCalc(v, { masters = {}, companyState } = {}) {
+  const cState = companyState || Object.values(masters.Company || {})[0]?.default_state || '';
   const vendorState = masters.Vendor?.[v.vendor]?.state || '';
   let taxable = 0;
   let tax = 0;
   let rowExtra = 0;
+  let totalOrdered = 0;
+  let totalReceived = 0;
+
   const items = (v.items || []).map((r) => {
-    const amount = n(r.quantity) * n(r.rate);
+    const q = n(r.quantity);
+    const rcv = n(r.received_qty);
+    const pend = Math.max(0, q - rcv);
+    totalOrdered += q;
+    totalReceived += rcv;
+
+    const amount = q * n(r.rate);
     rowExtra += n(r.extra_charge);
-    const g = splitGst(amount, r.gst_percent, vendorState, companyState);
+    const g = splitGst(amount, r.gst_percent, vendorState, cState);
     taxable += amount;
     tax += g.cgst + g.sgst + g.igst;
-    return { amount, ...g, uom: masters.Product?.[r.product]?.uom || '' };
+    return {
+      amount,
+      ...g,
+      uom: masters.Product?.[r.product]?.uom || '',
+      received_qty: rcv,
+      pending_qty: pend,
+    };
   });
   const shares = allocateExtra(items.map((i) => i.amount), v.extra_charges);
   items.forEach((it, i) => {
@@ -164,8 +180,17 @@ export function purchaseCalc(v, { masters, companyState }) {
     // landed = amount + this row's extra charge + its share of the bill-level extra charges
     it.landed_rate = q ? (it.amount + n(v.items[i].extra_charge) + shares[i]) / q : 0;
   });
+  const totalPending = Math.max(0, totalOrdered - totalReceived);
   return {
-    top: { vendor_state: vendorState, taxable_amount: taxable, tax_amount: tax, grand_total: taxable + tax + n(v.extra_charges) + rowExtra },
+    top: {
+      vendor_state: vendorState,
+      taxable_amount: taxable,
+      tax_amount: tax,
+      grand_total: taxable + tax + n(v.extra_charges) + rowExtra,
+      total_ordered_qty: totalOrdered,
+      total_received_qty: totalReceived,
+      total_pending_qty: totalPending,
+    },
     rows: { items },
   };
 }

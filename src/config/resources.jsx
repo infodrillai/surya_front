@@ -12,6 +12,7 @@ import { db } from '../db/dexie';
 import { purchaseCalc, salesCalc, stageCalc, computeQuotationPR } from '../lib/formulas';
 import QtyDialog from '../components/QtyDialog';
 import ReturnDialog from '../components/ReturnDialog';
+import GoodsReceiptDialog from '../components/GoodsReceiptDialog';
 import { todayISO } from '../lib/format';
 import QuotationVersionBar, { openQuotation } from '../components/QuotationVersionBar';
 
@@ -183,21 +184,146 @@ const product = {
   ],
 };
 
-// ---- Purchase --------------------------------------------------------------
+// ---- Goods Receipt dialog state (shared) -----------------------------------
+let _grDialogOpen = false;
+let _grPoName = '';
+let _grResolver = null;
+
+export function openGoodsReceiptDialog(poName) {
+  return new Promise((resolve) => {
+    _grDialogOpen = true;
+    _grPoName = poName;
+    _grResolver = resolve;
+    window.dispatchEvent(new CustomEvent('gr-dialog-open'));
+  });
+}
+
+export function GoodsReceiptDialogHost() {
+  const [open, setOpen] = React.useState(false);
+  const [poName, setPoName] = React.useState('');
+
+  React.useEffect(() => {
+    const handler = () => {
+      setOpen(true);
+      setPoName(_grPoName);
+    };
+    window.addEventListener('gr-dialog-open', handler);
+    return () => window.removeEventListener('gr-dialog-open', handler);
+  }, []);
+
+  const handleClose = (result) => {
+    setOpen(false);
+    if (_grResolver) {
+      _grResolver(result);
+      _grResolver = null;
+    }
+  };
+
+  return <GoodsReceiptDialog open={open} poName={poName} onClose={handleClose} />;
+}
+
+// ---- Purchase Order --------------------------------------------------------
 const purchase = {
-  doctype: 'Purchase Entry', title: 'Purchase', plural: 'Purchases', completable: true, subtitle: 'Vendor bills. Completing a purchase adds Raw stock at landed cost.',
+  doctype: 'Purchase Entry',
+  title: 'Purchase Order',
+  plural: 'Purchase Orders',
+  completable: false,
+  subtitle: 'Purchase orders for raw materials. Goods Receipt adds stock upon arrival.',
   fields: [
-    link('vendor', 'Vendor', 'Vendor', { required: true }), date('posting_date', 'Date', { required: true }), t('bill_no', 'Bill no', { required: true }), ro(t('vendor_state', 'Vendor state')),
+    link('vendor', 'Vendor', 'Vendor', { required: true }),
+    date('posting_date', 'Order date', { required: true }),
+    date('expected_delivery_date', 'Expected delivery'),
+    t('bill_no', 'Supplier Bill / Ref'),
+   // ro(t('status', 'Status', { default: () => 'Draft' })),
+    ro(t('vendor_state', 'Vendor state')),
     cur('extra_charges', 'Extra charges', { required: false, default: () => 0 }),
-    sum(cur('taxable_amount', 'Taxable amount')), sum(cur('tax_amount', 'Tax amount', { required: false, default: () => 0 })), sum(cur('grand_total', 'Grand total')),
+    sum(cur('taxable_amount', 'Taxable amount')),
+    sum(cur('tax_amount', 'Tax amount', { required: false, default: () => 0 })),
+    sum(cur('grand_total', 'Grand total')),
+    sum(num('total_ordered_qty', 'Total ordered')),
+    sum(num('total_received_qty', 'Total received')),
+    sum(num('total_pending_qty', 'Total pending')),
   ],
   tables: [{
-    name: 'items', label: 'Items', newRow: () => ({ quantity: '', rate: '', gst_percent: 0, extra_charge: 0, cgst: 0, sgst: 0, igst: 0, amount: 0, landed_rate: 0 }), empty: 'Add the raw materials on this bill.',
-    fields: [link('product', 'Product', 'Product', { filter: raw, required: true, minWidth: 220, labelField: 'product_name' }), num('quantity', 'Qty', { positive: true }), ro(t('uom', 'UOM')), cur('rate', 'Rate'), num('gst_percent', 'GST %', { max: 100 }), cur('extra_charge', 'Extra charge'), ro(cur('amount', 'Amount')), ro(cur('cgst', 'CGST')), ro(cur('sgst', 'SGST')), ro(cur('igst', 'IGST')), ro(cur('landed_rate', 'Landed rate', { dp: 4 }))],
+    name: 'items',
+    label: 'Items',
+    newRow: () => ({
+      quantity: '',
+      rate: '',
+      gst_percent: 0,
+      amount: 0,
+      landed_rate: 0,
+      received_qty: 0,
+      pending_qty: 0,
+    }),
+    empty: 'Add the raw materials on this order.',
+    fields: [
+      link('product', 'Product', 'Product', { filter: raw, required: true, minWidth: 220, labelField: 'product_name' }),
+      num('quantity', 'Ordered Qty', { positive: true }),
+      ro(num('received_qty', 'Received')),
+      ro(num('pending_qty', 'Pending')),
+      ro(t('uom', 'UOM')),
+      cur('rate', 'Rate'),
+      num('gst_percent', 'GST %', { max: 100 }),
+      ro(cur('amount', 'Amount')),
+      ro(cur('landed_rate', 'Landed rate', { dp: 4 })),
+    ],
   }],
   compute: (v, ctx) => purchaseCalc(v, ctx),
   validate: (v) => (v.items?.length ? {} : { items: 'Add at least one item' }),
-  columns: [col('name', 'No'), col('vendor', 'Vendor'), col('posting_date', 'Date', 'date'), col('bill_no', 'Bill no'), col('extra_charges', 'Extra charges'), col('grand_total', 'Grand total', 'currency'), status],
+  columns: [
+    col('name', 'Order No'),
+    col('vendor', 'Vendor'),
+    col('posting_date', 'Order Date', 'date'),
+    col('expected_delivery_date', 'Expected Delivery', 'date'),
+    col('total_ordered_qty', 'Ordered', 'number'),
+    col('total_received_qty', 'Received', 'number'),
+    col('total_pending_qty', 'Pending', 'number'),
+    { field: 'status', label: 'Status', type: 'purchase-status' },
+  ],
+  rowActions: [
+    {
+      key: 'confirm_order',
+      label: 'Confirm Order',
+      show: (r) => !r.status || r.status === 'Draft',
+      run: async (r) => {
+        await runAction('Purchase Entry', r.name, 'confirm_order');
+        return `Purchase Order ${r.name} confirmed as Ordered.`;
+      },
+    },
+    {
+      key: 'receive_goods',
+      label: 'Receive Goods',
+      show: (r) =>
+        ['Ordered', 'Partially Received'].includes(r.status) &&
+        (Number(r.total_pending_qty) > 0 || r.total_pending_qty == null),
+      run: async (r) => {
+        const res = await openGoodsReceiptDialog(r.name);
+        return res ?? 'Receipt dialog closed.';
+      },
+    },
+    {
+      key: 'view_receipts',
+      label: 'Receipts',
+      show: (r) => ['Ordered', 'Partially Received', 'Received'].includes(r.status),
+      run: async (r) => {
+        const res = await openGoodsReceiptDialog(r.name);
+        return res ?? 'Receipts reviewed.';
+      },
+    },
+    {
+      key: 'cancel',
+      label: 'Cancel',
+      show: (r) =>
+        ['Draft', 'Ordered'].includes(r.status) && (Number(r.total_received_qty) || 0) === 0,
+      run: async (r) => {
+        const ok = window.confirm(`Cancel Purchase Order ${r.name}?`);
+        if (!ok) return `Purchase Order ${r.name} not cancelled.`;
+        await runAction('Purchase Entry', r.name, 'cancel_order');
+        return `Purchase Order ${r.name} cancelled.`;
+      },
+    },
+  ],
 };
 
 // ---- Stage batches ---------------------------------------------------------
@@ -960,6 +1086,60 @@ const customerReturn = {
   ],
 };
 
+const goodsReceipt = {
+  doctype: 'Goods Receipt',
+  title: 'Goods Receipt',
+  plural: 'Goods Receipts',
+  completable: false,
+  readOnlyList: false,
+  subtitle: 'Confirmed vendor receipts. Receiving goods increases Raw inventory.',
+  fields: [
+    link('purchase_order', 'Purchase Order', 'Purchase Entry', { required: true, readOnlyOnEdit: true }),
+    ro(t('vendor', 'Vendor')),
+    date('posting_date', 'Receipt Date', { required: true }),
+    t('supplier_delivery_note', 'Delivery Note / Challan'),
+    ro(t('status', 'Status')),
+    ro(cur('total_amount', 'Total Value')),
+    ro(num('total_qty', 'Total Quantity')),
+    { name: 'remarks', label: 'Remarks', type: 'textarea' },
+  ],
+  tables: [{
+    name: 'items', label: 'Received Items',
+    fields: [
+      link('product', 'Product', 'Product', { readOnly: true }),
+      ro(t('uom', 'UOM')),
+      ro(num('ordered_qty', 'Ordered')),
+      ro(num('already_received_qty', 'Previously Received')),
+      ro(num('received_qty', 'Received Now')),
+      ro(cur('landed_rate', 'Landed Cost')),
+      ro(cur('amount', 'Amount')),
+    ],
+  }],
+  columns: [
+    col('name', 'Receipt No'),
+    col('purchase_order', 'PO No'),
+    col('vendor', 'Vendor'),
+    col('posting_date', 'Receipt Date', 'date'),
+    col('supplier_delivery_note', 'Delivery Note'),
+    col('total_qty', 'Received Qty', 'number'),
+    col('total_amount', 'Total Value', 'currency'),
+    { field: 'status', label: 'Status', type: 'receipt-status' },
+  ],
+  rowActions: [
+    {
+      key: 'cancel',
+      label: 'Cancel & Reverse',
+      show: (r) => r.status === 'Confirmed',
+      run: async (r) => {
+        const ok = window.confirm(`Cancel Goods Receipt ${r.name}? This will REVERSE the stock added to Raw inventory.`);
+        if (!ok) return `Goods Receipt ${r.name} not cancelled.`;
+        await call('clssurya.api.cancel_goods_receipt', { goods_receipt_name: r.name });
+        return `Goods Receipt ${r.name} cancelled — stock reversed.`;
+      },
+    },
+  ],
+};
+
 const inventory = {
   doctype: 'Inventory', title: 'Stock', plural: 'Inventory by stage', readOnlyList: true, subtitle: 'Quantity and weighted-average price per product and stage.',
   fields: [], columns: [col('product', 'Product'), col('stage', 'Stage'), col('stock', 'Stock', 'number'), col('unit_price', 'Unit price', 'currency'), col('total_amount', 'Value', 'currency')],
@@ -969,5 +1149,5 @@ const inventory = {
 export const RESOURCES = {
   '/uom': uom, '/product': product, '/category': category, '/process': process, '/purchase': purchase,
   '/quotation': quotation, '/sales-order': salesOrder, '/vendor': vendor, '/customer': customer,
-  '/charge': charge, '/dispatch': dispatch, '/customer-return': customerReturn,
+  '/charge': charge, '/dispatch': dispatch, '/customer-return': customerReturn, '/goods-receipt': goodsReceipt,
 };
