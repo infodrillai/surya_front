@@ -39,6 +39,10 @@ export default defineConfig(({ command, mode }) => {
     plugins: [react(), syncToFrappeWww()],
     server: {
       port: 5173,
+      watch: {
+        usePolling: true,
+        interval: 500,
+      },
       proxy: {
         '/api': {
           target: `http://127.0.0.1:${backendPort}`,

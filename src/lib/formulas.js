@@ -204,12 +204,12 @@ export function computeQuotationPR(item) {
   return { pr, final_rate, amount };
 }
 
-export function quotationTaxCalc(v) {
+export function quotationTaxCalc(v, customerState = '', companyState = 'Gujarat') {
   const items = v.items || [];
 
   const subtotal = items.reduce(
     (total, item) =>
-      total + n(item.quantity) * n(item.rate),
+      total + n(item.quantity) * (n(item.final_rate) || n(item.rate)),
     0
   );
 
@@ -218,20 +218,29 @@ export function quotationTaxCalc(v) {
     Math.max(0, n(v.discount_percent))
   );
 
-  const discountAmount = subtotal * discountPercent / 100;
-  const taxableAmount = Math.max(0, subtotal - discountAmount);
+  const discountAmount = (subtotal * discountPercent) / 100;
+  const packingCharges = n(v.packing_charges);
+  const transportCharges = n(v.transport_charges);
+  const taxableItemAmount = Math.max(0, subtotal - discountAmount);
+  const taxableAmount = taxableItemAmount + packingCharges + transportCharges;
 
-  const gstPercent = Math.max(0, n(v.gst_percent));
-  const totalGST = taxableAmount * gstPercent / 100;
-
-  //const isIGST = v.gst_type === 'IGST';
+  // Simplified GST calculation: single GST amount regardless of state
+  const gstPercent = v.gst_percent !== undefined && v.gst_percent !== null && v.gst_percent !== '' ? n(v.gst_percent) : 18;
+  const taxAmount = (taxableAmount * gstPercent) / 100;
+  const grandTotal = taxableAmount + taxAmount;
 
   return {
     subtotal,
     discount_amount: discountAmount,
+    packing_charges: packingCharges,
+    transport_charges: transportCharges,
     taxable_amount: taxableAmount,
+    cgst,
+    sgst,
+    igst,
+    tax_amount: taxAmount,
     total_amount: subtotal,
-    grand_total: taxableAmount + totalGST,
+    grand_total: grandTotal,
   };
 }
 

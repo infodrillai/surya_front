@@ -3,9 +3,8 @@ import { useState } from 'react';
 import CrudPage from '../components/CrudPage';
 import { STAGE_CONFIGS } from '../config/resources';
 
-const LABELS = ['Stage 1 · Raw to semi', 'Stage 2 · Semi to semi', 'Stage 3 · Charges to finished'];
+const LABELS = ['Stage 1 (Insert Making)', 'Stage 2 (PU & Casting)', 'Stage 3 (CNC)'];
 
-/** Three independent screens that link only through stock. */
 export default function BatchPage() {
   const [tab, setTab] = useState(0);
   return (

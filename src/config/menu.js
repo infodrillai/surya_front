@@ -12,36 +12,44 @@ import ShoppingCartIcon from '@mui/icons-material/ShoppingCartOutlined';
 import StraightenIcon from '@mui/icons-material/StraightenOutlined';
 import TuneIcon from '@mui/icons-material/TuneOutlined';
 import WarehouseIcon from '@mui/icons-material/WarehouseOutlined';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 
 const STORE = 'CS Store', PROD = 'CS Production', SALES = 'CS Sales';
 
 /** roles omitted = everyone; admins always see everything. Route guards use the same list. */
 export const MENU = [
-  {
-    section: 'Master',
-    items: [
-      { label: 'UOM', path: '/uom', icon: StraightenIcon },
-      { label: 'Product', path: '/product', icon: Inventory2Icon },
-      { label: 'Category', path: '/category', icon: CategoryIcon },
-      { label: 'Process', path: '/process', icon: TuneIcon, roles: [STORE, PROD] },
-      { label: 'Purchase', path: '/purchase', icon: ShoppingCartIcon, roles: [STORE] },
-      { label: 'Batch', path: '/batch', icon: FactoryIcon, roles: [PROD] },
-      { label: 'Quotation', path: '/quotation', icon: RequestQuoteIcon, roles: [SALES] },
-      { label: 'Sales Order', path: '/sales-order', icon: ReceiptIcon, roles: [SALES, STORE] },
-    ],
-  },
-  {
-    section: 'Supporting',
-    items: [
-      { label: 'Vendor', path: '/vendor', icon: HandshakeIcon, roles: [STORE, PROD] },
-      { label: 'Customer', path: '/customer', icon: PeopleIcon, roles: [SALES, STORE] },
-      { label: 'Outstanding', path: '/customer-outstanding', icon: AccountBalanceWalletIcon, roles: [SALES, STORE] },
-      { label: 'Charge', path: '/charge', icon: DescriptionIcon, roles: [PROD] },
-      { label: 'Inventory', path: '/inventory', icon: WarehouseIcon, roles: [STORE, PROD] },
-      { label: 'Dispatch', path: '/dispatch', icon: LocalShippingIcon, roles: [STORE, SALES] },
-      { label: 'Goods Receipt', path: '/goods-receipt', icon: ReceiptIcon, roles: [STORE] },
-      { label: 'Returns', path: '/customer-return', icon: ReceiptIcon, roles: [STORE, SALES] },
-    ],
-  },
+    {
+        section: 'Master',
+        items: [
+            { label: 'UOM', path: '/uom', icon: StraightenIcon },
+            { label: 'Product', path: '/product', icon: Inventory2Icon },
+            { label: 'Category', path: '/category', icon: CategoryIcon },
+            { label: 'Process', path: '/process', icon: TuneIcon, roles: [STORE, PROD] },
+            { label: 'Purchase', path: '/purchase', icon: ShoppingCartIcon, roles: [STORE] },
+            { label: 'Batch', path: '/batch', icon: FactoryIcon, roles: [PROD] },
+            { label: 'Quotation', path: '/quotation', icon: RequestQuoteIcon, roles: [SALES] },
+            { label: 'Sales Order', path: '/sales-order', icon: ReceiptIcon, roles: [SALES, STORE] },
+        ],
+    },
+    {
+        section: 'Supporting',
+        items: [
+            { label: 'Vendor', path: '/vendor', icon: HandshakeIcon, roles: [STORE, PROD] },
+            { label: 'Customer', path: '/customer', icon: PeopleIcon, roles: [SALES, STORE] },
+            { label: 'Outstanding', path: '/customer-outstanding', icon: AccountBalanceWalletIcon, roles: [SALES, STORE] },
+            { label: 'Charge', path: '/charge', icon: DescriptionIcon, roles: [PROD] },
+            { label: 'Inventory', path: '/inventory', icon: WarehouseIcon, roles: [STORE, PROD] },
+            { label: 'Dispatch', path: '/dispatch', icon: LocalShippingIcon, roles: [STORE, SALES] },
+            { label: 'Goods Receipt', path: '/goods-receipt', icon: ReceiptIcon, roles: [STORE] },
+            { label: 'Returns', path: '/customer-return', icon: ReceiptIcon, roles: [STORE, SALES] },
+        ],
+    },
+    {
+        section: 'Report',
+        items:[
+            { label: 'Monthly Production Report', path: '/monthly-production-report', icon: CalendarMonthIcon, roles: [STORE ,PROD] },
+            { label: 'Machine-wise Production & Time-Tracking', path: '/machine-time-report', icon: CalendarMonthIcon, roles: [STORE ,PROD] },
+        ]
+    }
 ];
 

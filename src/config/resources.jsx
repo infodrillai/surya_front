@@ -46,7 +46,17 @@ const customerCols = [col('name', 'Name'), col('gstin', 'GSTIN'), col('city', 'C
 
 const uom = { ...simple('UOM', 'uom_name', 'UOM'), plural: 'Units of measure' };
 const process = { ...simple('Process', 'process_name', 'Process'), plural: 'Processes' };
-const category = { ...simple('Category', 'category_name', 'Category'), plural: 'Categories' };
+const category = {
+  doctype: 'Category', master: true, title: 'Category', plural: 'Categories',
+  fields: [
+    t('category_name', 'Category name', { required: true, readOnlyOnEdit: true }),
+    num('max_purchase_qty', 'Max Purchase Qty Limit (Approval threshold)'),
+  ],
+  columns: [
+    col('category_name', 'Category name'),
+    col('max_purchase_qty', 'Max Purchase Limit', 'number'),
+  ],
+};
 const charge = { ...simple('Charge', 'charge_name', 'Charge'), subtitle: 'Labour, electricity and other Stage 3 charges.' };
 const vendor = { doctype: 'Vendor', master: true, title: 'Vendor', fields: [t('vendor_name', 'Vendor name', { required: true, readOnlyOnEdit: true }), ...contact], columns: contactCols, subtitle: 'State decides CGST + SGST or IGST on purchases.' };
 const customer = {
@@ -81,17 +91,20 @@ const product = {
   fields: [
     t('product_name', 'Product name', { required: true }),
     t('product_code', 'Product code', { required: true, readOnlyOnEdit: true }),
+    // NEW – Production Code (separate from product_code, used on finished-goods transfer)
+    t('production_code', 'Production Code', { required: false }),
     sel('product_type', 'Product type', ['Raw', 'Semi', 'Finished'], { required: true, default: () => 'Raw' }),
     link('uom', 'UOM', 'UOM', { required: true }),
     link('category', 'Category', 'Category'),
     sel('total_steps', 'BOM Stages (Total steps)', [
-      { value: 1, label: '1 Stage (Stage 1 only)' },
-      { value: 2, label: '2 Stages (Stage 1 & 2)' },
-      { value: 3, label: '3 Stages (Stage 1, 2 & 3)' },
+      { value: 1, label: '1 Stage (Insert only)' },
+      { value: 2, label: '2 Stages (Insert & Casting)' },
+      { value: 3, label: '3 Stages (Insert, Casting & CNC / Charge)' },
     ], {
       showIf: (v) => v.product_type && v.product_type !== 'Raw',
       default: () => 3,
     }),
+    num('max_purchase_qty', 'Max Purchase Qty Limit (Approval threshold)'),
     num('low_stock_limit', 'Low stock limit'),
     num('high_stock_limit', 'High stock limit'),
     { name: 'is_scrap', label: 'Scrap / wastage product', type: 'check' },
@@ -100,7 +113,7 @@ const product = {
   tables: [
     {
       name: 'stage1_items',
-      label: 'BOM · Stage 1 (Raw materials & Scrap)',
+      label: 'BOM · Stage 1 (Insert - Raw materials & Scrap)',
       empty: 'Add Stage 1 raw materials and optional scrap/wastage product.',
       fields: bomRow([link('wastage_product', 'Wastage scrap product', 'Product', { filter: (r) => !!r.is_scrap, minWidth: 200 })]),
       showIf: (v) => steps(v) >= 1,
@@ -108,7 +121,7 @@ const product = {
     },
     {
       name: 'stage2_items',
-      label: 'BOM · Stage 2 (Secondary raw materials)',
+      label: 'BOM · Stage 2 (Casting - Secondary raw materials)',
       empty: 'Add Stage 2 raw materials.',
       fields: bomRow(),
       showIf: (v) => steps(v) >= 2,
@@ -116,7 +129,7 @@ const product = {
     },
     {
       name: 'stage3_charges',
-      label: 'BOM · Stage 3 (Charges & Overhead)',
+      label: 'BOM · Stage 3 (CNC / Charge - Overhead & Charges)',
       empty: 'Add Stage 3 charges (e.g. Labour, Electricity, Finishing).',
       fields: [
         link('charge', 'Charge', 'Charge', { required: true, minWidth: 200 }),
@@ -176,6 +189,7 @@ const product = {
   },
   columns: [
     col('product_code', 'Code'),
+    col('production_code', 'Production Code'),
     col('product_name', 'Name'),
     col('product_type', 'Type'),
     col('uom', 'UOM'),
@@ -234,7 +248,7 @@ const purchase = {
     date('posting_date', 'Order date', { required: true }),
     date('expected_delivery_date', 'Expected delivery'),
     t('bill_no', 'Supplier Bill / Ref'),
-   // ro(t('status', 'Status', { default: () => 'Draft' })),
+    // ro(t('status', 'Status', { default: () => 'Draft' })),
     ro(t('vendor_state', 'Vendor state')),
     cur('extra_charges', 'Extra charges', { required: false, default: () => 0 }),
     sum(cur('taxable_amount', 'Taxable amount')),
@@ -280,15 +294,36 @@ const purchase = {
     col('total_received_qty', 'Received', 'number'),
     col('total_pending_qty', 'Pending', 'number'),
     { field: 'status', label: 'Status', type: 'purchase-status' },
+    col('approval_status', 'Approval'),
   ],
   rowActions: [
     {
       key: 'confirm_order',
       label: 'Confirm Order',
-      show: (r) => !r.status || r.status === 'Draft',
+      show: (r) => (!r.status || r.status === 'Draft' || r.status === 'Approved') && r.approval_status !== 'Pending',
       run: async (r) => {
         await runAction('Purchase Entry', r.name, 'confirm_order');
         return `Purchase Order ${r.name} confirmed as Ordered.`;
+      },
+    },
+    {
+      key: 'approve_purchase',
+      label: 'Approve',
+      show: (r) => r.status === 'Pending Approval' || r.approval_status === 'Pending',
+      run: async (r) => {
+        await call('clssurya.api.run_action', { doctype: 'Purchase Entry', name: r.name, action: 'approve_purchase' });
+        return `Purchase Order ${r.name} approved.`;
+      },
+    },
+    {
+      key: 'reject_purchase',
+      label: 'Reject',
+      show: (r) => r.status === 'Pending Approval' || r.approval_status === 'Pending',
+      run: async (r) => {
+        const reason = window.prompt(`Enter rejection reason for Purchase Order ${r.name}:`);
+        if (!reason) return 'Rejection cancelled (reason is required).';
+        await call('clssurya.api.run_action', { doctype: 'Purchase Entry', name: r.name, action: 'reject_purchase', args: { reason } });
+        return `Purchase Order ${r.name} rejected.`;
       },
     },
     {
@@ -326,7 +361,7 @@ const purchase = {
   ],
 };
 
-// ---- Stage batches ---------------------------------------------------------
+// ---- Stage batches (Insert, Casting, CNC / Charge) -------------------------
 const stageRows = (stage) => async (v) => {
   const r = await call('clssurya.api.get_stage_rows', { product: v.product, qty: v.quantity, stage });
   return { top: { wastage_product: r.wastage_product || '' }, tables: { items: r.items, ...(stage === 3 ? { charges: r.charges } : {}) } };
@@ -337,20 +372,34 @@ const itemFields = [
   num('actual_utilization', 'Actual used'), ro(cur('unit_price', 'Unit price', { dp: 4 })), ro(cur('actual_amount', 'Actual amount')),
   cur('extra_cost', 'Extra cost / pc'),
 ];
+
+const STAGE_TITLES = { 1: 'Stage 1 (Insert Making) batch', 2: 'Stage 2 (PU & Casting) batch', 3: 'Stage 3 (CNC) batch' };
+const STAGE_PLURALS = { 1: 'Stage 1 (Insert Making) batches', 2: 'Stage 2 (PU & Casting) batches', 3: 'Stage 3 (CNC) batches' };
+
 const stageConfig = (stage) => ({
-  doctype: `Stage ${stage} Batch`, title: `Stage ${stage} batch`, plural: `Stage ${stage} batches`, completable: true, summaryTitle: 'Live cost',
+  doctype: `Stage ${stage} Batch`,
+  title: STAGE_TITLES[stage] || `Stage ${stage} batch`,
+  plural: STAGE_PLURALS[stage] || `Stage ${stage} batches`,
+  completable: true,
+  summaryTitle: 'Live cost',
   fields: [
     link('product', stage === 3 ? 'Finished product' : 'Product to produce', 'Product', { required: true, minWidth: 240, filter: (r) => r.product_type !== 'Raw' && Number(r.total_steps) >= stage }),
+    //t('production_code', 'Production Code'),
     num('quantity', 'Quantity produced', { positive: true }), date('posting_date', 'Date'),
+    //t('operator', 'Operator / Worker'),
+    //link('process', 'Process / Operation', 'Process'),
+    ...(stage === 3 ? [link('machine', 'CNC Machine', 'CNC Machine')] : []),
     ...(stage === 1 ? [num('weight_per_piece', 'Weight per piece', { positive: true }), ro(num('wastage_qty', 'Wastage (to scrap)', { dp: 4 }))] : []),
     ...(stage === 3 ? [num('tooling_percent', 'Tooling cost %', { max: 100 }), ro(cur('tooling_base', 'Tooling base (carried + ticked charges)', { minWidth: 220 }))] : []),
     num('rejection_percent', stage === 3 ? 'Rejection % (on everything)' : 'Rejection %', { max: 99.99 }),
     sum(cur('carried_cost', 'Carried cost')), sum(cur('added_cost', 'Added cost')),
     ...(stage === 3 ? [sum(cur('tooling_amount', 'Tooling cost'))] : []),
     sum(cur('rejection_amount', 'Rejection')), sum(cur('batch_total', 'Batch total')), sum(cur('unit_cost', 'Unit cost', { dp: 3 })),
+    t('remarks', 'Remarks'),
+    //ro(t('status', 'Status')),
   ],
   tables: [
-    { name: 'items', label: stage === 1 ? 'Raw materials' : stage === 2 ? 'Consumption (carried-in + raw)' : 'Carried-in Stage 2 stock', fields: itemFields, noAdd: true },
+    { name: 'items', label: stage === 1 ? 'Insert Making raw materials' : stage === 2 ? 'PU & Casting consumption (carried-in + raw)' : 'Carried-in PU & Casting stock', fields: itemFields, noAdd: true },
     ...(stage === 3 ? [{ name: 'charges', label: 'Charges', noAdd: true, fields: [link('charge', 'Charge', 'Charge', { readOnly: true }), cur('per_unit_price', 'Per unit'), { name: 'in_tooling_base', label: 'In tooling base', type: 'check' }, ro(cur('amount', 'Amount'))] }] : []),
   ],
 
@@ -359,7 +408,7 @@ const stageConfig = (stage) => ({
 
   loadKey: (v) => (v.product && Number(v.quantity) > 0 ? `${v.product}|${v.quantity}` : null),
   loadRows: stageRows(stage),
-  columns: [col('name', 'No'), col('product', 'Product'), col('quantity', 'Quantity', 'number'), col('unit_cost', 'Unit cost', 'currency'), col('batch_total', 'Batch total', 'currency'), status],
+  columns: [col('name', 'Batch No'), col('product', 'Product'), col('quantity', 'Quantity', 'number'), col('unit_cost', 'Unit cost', 'currency'), col('batch_total', 'Batch total', 'currency'), status],
   // Validate numeric fields to avoid NaN when saving/completing
   validate: (v) => {
     const e = {};
@@ -477,15 +526,19 @@ const quotation = {
     date('quotation_date', 'Date'),
 
     // ---- Summary panel (order = display order) ----
-    sum(cur('subtotal', 'Subtotal')),
+    sum(cur('subtotal', 'Item Subtotal')),
+    { ...cur('packing_charges', 'Packing Charges', { default: () => 0 }), summary: true, editable: true },
+    { ...cur('transport_charges', 'Transport Charges', { default: () => 0 }), summary: true, editable: true },
+
     { ...num('discount_percent', 'Discount (%)', { max: 100, default: () => 0 }), summary: true, editable: true },
     sum(cur('discount_amount', 'Discount Amount')),
+    // Packing & Transport — editable in summary panel
     { ...num('gst_percent', 'GST (%)', { max: 100, default: () => 18 }), summary: true, editable: true },
     sum(cur('tax_amount', 'GST Amount')),
     sum(cur('grand_total', 'Grand Total')),
   ],
   summaryTitle: 'Quotation Summary',
-  summaryColumns: 6,
+  summaryColumns: 8,
 
 
   // Show version badge and previous quotation link inside the form header
@@ -553,17 +606,34 @@ const quotation = {
 
     const subtotal = items.reduce((t, it) => t + it.amount, 0);
     const discountPct = Math.min(100, Math.max(0, Number(v.discount_percent) || 0));
-    const discountAmt = subtotal * discountPct / 100;
-    const taxableAmt = Math.max(0, subtotal - discountAmt);
-    const gstPct = Math.min(100, Math.max(0, Number(v.gst_percent) || 0));
-    const taxAmt = taxableAmt * gstPct / 100;
+    const discountAmt = (subtotal * discountPct) / 100;
+    const packingCharges = Number(v.packing_charges) || 0;
+    const transportCharges = Number(v.transport_charges) || 0;
+    const taxableAmt = Math.max(0, subtotal - discountAmt) + packingCharges + transportCharges;
+    const gstPct = v.gst_percent !== undefined && v.gst_percent !== null && v.gst_percent !== '' ? Number(v.gst_percent) : 18;
+
+    const custState = ctx?.masters?.Customer?.[v.customer]?.state || '';
+    const same = !custState || custState.trim().toLowerCase() === 'gujarat';
+    let cgst = 0, sgst = 0, igst = 0;
+    if (same) {
+      cgst = (taxableAmt * (gstPct / 2)) / 100;
+      sgst = (taxableAmt * (gstPct / 2)) / 100;
+    } else {
+      igst = (taxableAmt * gstPct) / 100;
+    }
+    const taxAmt = cgst + sgst + igst;
 
     return {
       top: {
         ...base.top,
         subtotal,
         discount_amount: discountAmt,
+        packing_charges: packingCharges,
+        transport_charges: transportCharges,
         taxable_amount: taxableAmt,
+        cgst,
+        sgst,
+        igst,
         tax_amount: taxAmt,
         total_amount: subtotal,
         grand_total: taxableAmt + taxAmt,
@@ -599,6 +669,8 @@ const quotation = {
     col('name', 'No'),
     col('customer', 'Customer'),
     col('quotation_date', 'Date', 'date'),
+    col('subtotal', 'Subtotal', 'currency'),
+    //col('taxable_amount', 'Taxable', 'currency'),
     col('grand_total', 'Grand Total', 'currency'),
     col('status', 'Status', 'status'),
   ],
@@ -717,14 +789,18 @@ const salesOrder = {
   fields: [
     link('customer', 'Customer', 'Customer', { required: true }),
     date('order_date', 'Date'),
-    // Editable discount and GST — inherited from Quotation but can be adjusted on the SO
+    // ---- Summary panel (order = display order) ----
     sum(cur('subtotal', 'Subtotal')),
-    num('discount_percent', 'Discount (%)', { max: 100, default: () => 0, summary: true, editable: true }),
+    { ...cur('packing_charges', 'Packing Charges', { default: () => 0 }), summary: true, editable: true },
+    { ...cur('transport_charges', 'Transport Charges', { default: () => 0 }), summary: true, editable: true },
+        num('discount_percent', 'Discount (%)', { max: 100, default: () => 0, summary: true, editable: true }),
     sum(cur('discount_amount', 'Discount Amount')),
+    // Packing & Transport — editable in summary panel
     num('gst_percent', 'GST (%)', { max: 100, default: () => 18, summary: true, editable: true }),
     sum(cur('tax_amount', 'GST Amount')),
     sum(cur('grand_total', 'Grand Total')),
   ],
+  summaryColumns: 8,
 
   tables: [{
     name: 'items',
@@ -742,13 +818,15 @@ const salesOrder = {
   }],
 
   compute: (v, ctx) => {
-    // Use salesCalc as base then recompute totals with discount/GST
+    // Use salesCalc as base then recompute totals with discount/GST/charges
     const base = salesCalc(v, ctx);
     const items = base.rows?.items || v.items || [];
     const subtotal = items.reduce((s, r) => s + (Number(r.amount) || 0), 0);
     const discountPct = Math.min(100, Math.max(0, Number(v.discount_percent) || 0));
     const discountAmt = subtotal * discountPct / 100;
-    const taxableAmt = Math.max(0, subtotal - discountAmt);
+    const packingCharges = Number(v.packing_charges) || 0;
+    const transportCharges = Number(v.transport_charges) || 0;
+    const taxableAmt = Math.max(0, subtotal - discountAmt) + packingCharges + transportCharges;
     const gstPct = Math.min(100, Math.max(0, Number(v.gst_percent) || 0));
     const taxAmt = taxableAmt * gstPct / 100;
     return {
@@ -757,6 +835,8 @@ const salesOrder = {
         subtotal,
         total_amount: subtotal,
         discount_amount: discountAmt,
+        packing_charges: packingCharges,
+        transport_charges: transportCharges,
         taxable_amount: taxableAmt,
         tax_amount: taxAmt,
         grand_total: taxableAmt + taxAmt,
@@ -985,7 +1065,7 @@ const dispatch = {
     col('dispatch_date', 'Date', 'date'),
     col('dispatch_status', 'Status', 'dispatch-status'),
     col('grand_total', 'Grand Total', 'currency'),
-    
+
   ],
 };
 
@@ -1145,9 +1225,65 @@ const inventory = {
   fields: [], columns: [col('product', 'Product'), col('stage', 'Stage'), col('stock', 'Stock', 'number'), col('unit_price', 'Unit price', 'currency'), col('total_amount', 'Value', 'currency')],
 };
 
+const cncMachine = {
+  doctype: 'CNC Machine',
+  master: true,
+  title: 'CNC Machine',
+  plural: 'CNC Machines',
+  subtitle: 'Master catalog of CNC machines, operation specs, and running status.',
+  fields: [
+    t('machine_code', 'Machine Code', { required: true, readOnlyOnEdit: true }),
+    t('machine_name', 'Machine Name', { required: true }),
+    sel('machine_type', 'Machine Type', ['Milling', 'Lathe', 'Drilling', 'Grinding', 'Turning', 'Other'], { required: true, default: () => 'Milling' }),
+    sel('status', 'Status', ['Active', 'Inactive', 'Maintenance'], { required: true, default: () => 'Active' }),
+    { name: 'description', label: 'Description', type: 'textarea' },
+  ],
+  columns: [
+    col('machine_code', 'Machine Code'),
+    col('machine_name', 'Machine Name'),
+    col('machine_type', 'Machine Type'),
+    col('status', 'Status'),
+    col('description', 'Description'),
+  ],
+};
+
+const shortageClaim = {
+  doctype: 'Purchase Shortage Claim',
+  title: 'Shortage & Credit Claim',
+  plural: 'Shortage & Credit Claims',
+  subtitle: 'Claims for short-received goods against supplier purchase entries.',
+  fields: [
+    link('purchase_entry', 'Purchase Entry', 'Purchase Entry', { required: true }),
+    link('vendor', 'Vendor', 'Vendor', { required: true }),
+    link('product', 'Product', 'Product', { required: true }),
+    num('invoiced_qty', 'Invoiced Qty', { required: true }),
+    num('received_qty', 'Received Qty', { required: true }),
+    num('shortage_qty', 'Shortage Qty', { required: true }),
+    cur('purchase_rate', 'Purchase Rate', { required: true }),
+    cur('shortage_value', 'Shortage Value', { required: true }),
+    cur('claimed_amount', 'Claimed Amount'),
+    cur('credited_amount', 'Credited Amount'),
+    t('supplier_credit_note_no', 'Supplier Credit Note #'),
+    date('credit_note_date', 'Credit Note Date'),
+    sel('claim_status', 'Claim Status', ['Pending', 'Submitted', 'Partially Credited', 'Fully Credited', 'Rejected', 'Settled']),
+    { name: 'reason', label: 'Reason / Discrepancy details', type: 'textarea' },
+  ],
+  columns: [
+    col('name', 'Claim ID'),
+    col('purchase_entry', 'Purchase Entry'),
+    col('vendor', 'Supplier'),
+    col('product', 'Product'),
+    col('shortage_qty', 'Shortage Qty', 'number'),
+    col('shortage_value', 'Shortage Value', 'currency'),
+    col('credited_amount', 'Credited', 'currency'),
+    col('claim_status', 'Status'),
+  ],
+};
+
 /** Route path -> config. */
 export const RESOURCES = {
   '/uom': uom, '/product': product, '/category': category, '/process': process, '/purchase': purchase,
   '/quotation': quotation, '/sales-order': salesOrder, '/vendor': vendor, '/customer': customer,
   '/charge': charge, '/dispatch': dispatch, '/customer-return': customerReturn, '/goods-receipt': goodsReceipt,
+  '/cnc-machine': cncMachine, '/shortage-claim': shortageClaim,
 };
