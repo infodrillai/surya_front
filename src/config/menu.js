@@ -47,6 +47,7 @@ export const MENU = [
     {
         section: 'Report',
         items:[
+            { label: 'Pending Order Analysis', path: '/pending-order-analysis', icon: ReceiptIcon, roles: [STORE, PROD] },
             { label: 'Monthly Production Report', path: '/monthly-production-report', icon: CalendarMonthIcon, roles: [STORE ,PROD] },
             { label: 'Machine-wise Production & Time-Tracking', path: '/machine-time-report', icon: CalendarMonthIcon, roles: [STORE ,PROD] },
         ]

@@ -24,12 +24,15 @@ import {
   Typography,
 } from '@mui/material';
 import {
+  AssignmentReturnOutlined,
   CalendarMonthOutlined,
   CheckCircleOutlineRounded,
   CloseRounded,
   DownloadRounded,
   ElectricBoltOutlined,
   FilterListRounded,
+  Inventory2Outlined,
+  LocalShippingOutlined,
   PrecisionManufacturingOutlined,
   RefreshRounded,
   SearchRounded,
@@ -110,22 +113,30 @@ function StatCard({ label, value, subtitle, icon: Icon, iconBg, iconColor }) {
       }}
     >
       <Box sx={{ minWidth: 0, pr: 1.5 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 650, letterSpacing: '0.02em', textTransform: 'uppercase' }}>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ fontWeight: 650, letterSpacing: '0.02em', textTransform: 'uppercase', fontSize: 11 }}
+        >
           {label}
         </Typography>
-        <Typography variant="h6" sx={{ mt: 0.5, mb: 0.25, fontWeight: 750, color: '#12262a' }}>
+        <Typography variant="h6" sx={{ mt: 0.5, mb: 0.25, fontWeight: 750, color: '#12262a', fontSize: '1.15rem' }}>
           {value}
         </Typography>
         {subtitle && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 11 }}
+          >
             {subtitle}
           </Typography>
         )}
       </Box>
       <Box
         sx={{
-          width: 42,
-          height: 42,
+          width: 38,
+          height: 38,
           borderRadius: '10px',
           bgcolor: iconBg || '#f0fdf4',
           color: iconColor || palette.teal,
@@ -134,7 +145,7 @@ function StatCard({ label, value, subtitle, icon: Icon, iconBg, iconColor }) {
           flexShrink: 0,
         }}
       >
-        <Icon sx={{ fontSize: 22 }} />
+        <Icon sx={{ fontSize: 20 }} />
       </Box>
     </Paper>
   );
@@ -177,7 +188,7 @@ export default function MonthlyProductionReportPage() {
     staleTime: 10_000,
   });
 
-  // 2. Fetch monthly production report aggregation if available on backend
+  // 2. Fetch monthly production report aggregation from backend
   const serverQuery = useQuery({
     queryKey: [
       'monthly_production_report',
@@ -206,7 +217,7 @@ export default function MonthlyProductionReportPage() {
     staleTime: 10_000,
   });
 
-  // 3. Direct queries for Stage 1, Stage 2, Stage 3 batches and Inventory
+  // 3. Direct queries for Stage 1, 2, 3 batches, Dispatches, and Inventory (offline & fallback)
   const { data: stage1Batches = [], refetch: refetchStg1 } = useQuery({
     queryKey: ['list', 'Stage 1 Batch'],
     queryFn: () => getList('Stage 1 Batch').catch(() => []),
@@ -231,6 +242,30 @@ export default function MonthlyProductionReportPage() {
     staleTime: 30 * 1000,
   });
 
+  const { data: dispatchesList = [], refetch: refetchDispatches } = useQuery({
+    queryKey: ['list', 'Dispatch'],
+    queryFn: () => getList('Dispatch').catch(() => []),
+    staleTime: 30 * 1000,
+  });
+
+  const { data: dispatchItemsList = [], refetch: refetchDispItems } = useQuery({
+    queryKey: ['list', 'Dispatch Item'],
+    queryFn: () => getList('Dispatch Item').catch(() => []),
+    staleTime: 30 * 1000,
+  });
+
+  const { data: customerReturnsList = [], refetch: refetchReturns } = useQuery({
+    queryKey: ['list', 'Customer Return'],
+    queryFn: () => getList('Customer Return').catch(() => []),
+    staleTime: 30 * 1000,
+  });
+
+  const { data: customerReturnItemsList = [], refetch: refetchReturnItems } = useQuery({
+    queryKey: ['list', 'Customer Return Item'],
+    queryFn: () => getList('Customer Return Item').catch(() => []),
+    staleTime: 30 * 1000,
+  });
+
   const handleRefreshAll = () => {
     refetchDatewise();
     serverQuery.refetch();
@@ -238,6 +273,10 @@ export default function MonthlyProductionReportPage() {
     refetchStg2();
     refetchStg3();
     refetchInv();
+    refetchDispatches();
+    refetchDispItems();
+    refetchReturns();
+    refetchReturnItems();
   };
 
   // Product lookup map
@@ -251,41 +290,115 @@ export default function MonthlyProductionReportPage() {
     return map;
   }, [products]);
 
-  // Robust client-side aggregation across batch history and inventory
+  // Robust client-side aggregation across batch history, dispatches, and inventory
   const computedClientRows = useMemo(() => {
     if (isDateRangeInvalid) return [];
 
     const normFrom = normalizeDateStr(fromDate);
     const normTo = normalizeDateStr(toDate);
 
-    // Saved production codes from local storage
-    const savedProdCodes = (() => {
-      try {
-        return JSON.parse(localStorage.getItem('finished_prod_codes') || '{}');
-      } catch {
-        return {};
+    // 1. Confirmed Dispatches in Date Range
+    // Rules 3 & 4: Only confirmed dispatches (dispatch_status === 'Dispatched' && docstatus !== 2)
+    const confirmedDispatchesMap = new Map();
+    (dispatchesList || []).forEach((d) => {
+      if (d.dispatch_status === 'Dispatched' && d.docstatus !== 2) {
+        const normD = normalizeDateStr(d.dispatch_date || d.creation);
+        if ((!normFrom || normD >= normFrom) && (!normTo || normD <= normTo)) {
+          confirmedDispatchesMap.set(d.name, d);
+        }
       }
-    })();
+    });
 
-    // Partial transfer map from local storage
-    const transferredMap = (() => {
-      try {
-        return JSON.parse(localStorage.getItem('batch_transfers_map') || '{}');
-      } catch {
-        return {};
+    const dispatchesByProd = new Map();
+    const dispatchDetailsByProd = new Map();
+    (dispatchItemsList || []).forEach((item) => {
+      const parentDisp = confirmedDispatchesMap.get(item.parent);
+      if (parentDisp) {
+        const pKey = item.product;
+        const q = Number(item.quantity || 0);
+        dispatchesByProd.set(pKey, (dispatchesByProd.get(pKey) || 0) + q);
+        if (!dispatchDetailsByProd.has(pKey)) {
+          dispatchDetailsByProd.set(pKey, []);
+        }
+        dispatchDetailsByProd.get(pKey).push({
+          dispatch_no: parentDisp.name || '',
+          dispatch_date: normalizeDateStr(parentDisp.dispatch_date || parentDisp.creation),
+          customer: parentDisp.customer || '',
+          sales_order: parentDisp.sales_order || '',
+          quantity: q,
+          unit_cost: Number(item.unit_cost || 0),
+        });
       }
-    })();
+    });
 
-    // 1. Gather all batch records (from datewiseRecords AND direct batch lists)
+    // 1b. Confirmed Customer Returns in Date Range
+    const confirmedReturnsMap = new Map();
+    (customerReturnsList || []).forEach((r) => {
+      if (r.return_status === 'Confirmed' && r.docstatus !== 2) {
+        const normD = normalizeDateStr(r.return_date || r.creation);
+        if ((!normFrom || normD >= normFrom) && (!normTo || normD <= normTo)) {
+          confirmedReturnsMap.set(r.name, r);
+        }
+      }
+    });
+
+    const returnsByProd = new Map();
+    const returnDetailsByProd = new Map();
+    (customerReturnItemsList || []).forEach((item) => {
+      const parentRet = confirmedReturnsMap.get(item.parent);
+      if (parentRet) {
+        const pKey = item.product;
+        const q = Number(item.return_qty || item.quantity || 0);
+        returnsByProd.set(pKey, (returnsByProd.get(pKey) || 0) + q);
+        if (!returnDetailsByProd.has(pKey)) {
+          returnDetailsByProd.set(pKey, []);
+        }
+        returnDetailsByProd.get(pKey).push({
+          return_no: parentRet.name || '',
+          return_date: normalizeDateStr(parentRet.return_date || parentRet.creation),
+          customer: parentRet.customer || '',
+          dispatch: parentRet.dispatch || '',
+          sales_order: parentRet.sales_order || '',
+          return_qty: q,
+          condition: item.condition || 'Usable',
+        });
+      }
+    });
+
+    // 2. Available stock in inventory (Finished goods stock)
+    // Rule 7: Keep current available inventory separate from production totals
+    const stockByProd = new Map();
+    const inventoryBreakdown = new Map();
+    (serverInventory || []).forEach((inv) => {
+      const pKey = inv.product || inv.name;
+      const stg = inv.stage || toInternalStage(inv.stage) || '';
+      const stk = Number(inv.stock || 0);
+      if (!inventoryBreakdown.has(pKey)) {
+        inventoryBreakdown.set(pKey, {});
+      }
+      inventoryBreakdown.get(pKey)[stg] = stk;
+      if (stg === 'Finished') {
+        stockByProd.set(pKey, (stockByProd.get(pKey) || 0) + stk);
+      }
+    });
+
+    // 3. Gather completed batches in date range
+    // Rules 4 & 5: Do not count pending or unconfirmed batches as completed production
     const allBatches = [];
     const seenBatchKeys = new Set();
 
     const addBatch = (b, stageNum, stageLabel) => {
       if (!b) return;
-      // Exclude cancelled transactions
       if (b.docstatus === 2 || b.status === 'Cancelled') return;
+      const isCompleted = b.is_completed === 1 || b.is_completed === true || b.status === 'Completed';
+      if (!isCompleted) return;
 
-      const batchKey = `${stageNum}_${b.name || b.batch_no || ''}_${b.posting_date || b.production_date || ''}_${b.product || b.product_code || ''}`;
+      const rawDt = b.production_date || b.posting_date || b.modified || b.creation || '';
+      const normDt = normalizeDateStr(rawDt);
+      if (normFrom && normDt && normDt < normFrom) return;
+      if (normTo && normDt && normDt > normTo) return;
+
+      const batchKey = `${stageNum}_${b.name || b.batch_no || ''}_${normDt}_${b.product || b.product_code || ''}`;
       if (seenBatchKeys.has(batchKey)) return;
       seenBatchKeys.add(batchKey);
 
@@ -294,92 +407,32 @@ export default function MonthlyProductionReportPage() {
         stage_num: stageNum,
         stage_label: stageLabel,
         batch_no: b.batch_no || b.name || '',
+        production_date: normDt || rawDt,
       });
     };
 
-    // Add from direct stage lists
     (stage1Batches || []).forEach((b) => addBatch(b, 1, 'Stage 1 – Insert Making'));
     (stage2Batches || []).forEach((b) => addBatch(b, 2, 'Stage 2 – PU & Casting'));
     (stage3Batches || []).forEach((b) => addBatch(b, 3, 'Stage 3 – CNC'));
 
-    // Add from datewiseRecords API
-    (datewiseRecords || []).forEach((r) => {
-      const stg = String(r.stage || r.stage_label || '');
-      if (stg.includes('1') || stg.includes('Insert')) {
-        addBatch(r, 1, 'Stage 1 – Insert Making');
-      } else if (stg.includes('2') || stg.includes('PU') || stg.includes('Casting')) {
-        addBatch(r, 2, 'Stage 2 – PU & Casting');
-      } else if (stg.includes('3') || stg.includes('CNC')) {
-        addBatch(r, 3, 'Stage 3 – CNC');
-      }
-    });
-
-    // 2. Finished Goods tracking
-    const fgTransfersByProd = new Map();
-
-    // From datewiseRecords Finished Goods
-    (datewiseRecords || []).forEach((r) => {
-      const isFin = r.stage === 'Finished' || r.stage_label === 'Finished Goods' || r.stage === 'Finished Goods';
-      if (isFin) {
-        const rawDt = r.production_date || r.modified || r.creation;
-        const normDt = normalizeDateStr(rawDt);
-        if ((!normFrom || normDt >= normFrom) && (!normTo || normDt <= normTo)) {
-          const pKey = r.product_code || r.product || r.product_name;
-          const qty = Number(r.produced_qty || r.input_qty || r.available_qty || r.stock || 0);
-          fgTransfersByProd.set(pKey, (fgTransfersByProd.get(pKey) || 0) + qty);
-        }
-      }
-    });
-
-    // From server Inventory Finished Goods
-    (serverInventory || []).forEach((inv) => {
-      const isFin = inv.stage === 'Finished' || toInternalStage(inv.stage) === 'Finished';
-      if (isFin) {
-        const rawDt = inv.modified || inv.creation;
-        const normDt = normalizeDateStr(rawDt);
-        const pKey = inv.product || inv.product_code || inv.name;
-        const qty = Number(inv.stock || 0);
-        if (qty > 0) {
-          if (!fgTransfersByProd.has(pKey)) {
-            fgTransfersByProd.set(pKey, qty);
-          }
-        }
-      }
-    });
-
-    // 3. Aggregate batches into product rows according to product
+    // 4. Aggregate batches into product rows
     const groups = {};
 
     allBatches.forEach((b) => {
-      const rawDt = b.production_date || b.posting_date || b.modified || b.creation || '';
-      const normDt = normalizeDateStr(rawDt);
-
-      // Filter by selected duration
-      if (normFrom && normDt && normDt < normFrom) return;
-      if (normTo && normDt && normDt > normTo) return;
-
       const prodIdentifier = b.product || b.product_code || b.product_name || '';
       if (!prodIdentifier) return;
 
       const p = prodMap.get(prodIdentifier) || prodMap.get(b.product_name) || {};
       const prodCode = p.product_code || b.product_code || prodIdentifier || '—';
       const prodName = p.product_name || b.product_name || prodIdentifier || '—';
-
-      // Production Code resolution
-      const prodCodeCandidate =
-        b.production_code ||
-        p.production_code ||
-        savedProdCodes[prodIdentifier] ||
-        savedProdCodes[prodCode] ||
-        savedProdCodes[prodName] ||
-        '';
-
       const uom = p.uom || b.uom || 'PCS';
+      const totalSteps = Number(p.total_steps || 3);
+      const prodCodeCandidate = b.production_code || p.production_code || '—';
 
-      // Group key by product so all stages roll up together
       const groupKey = prodIdentifier;
 
       let monthNo = 1;
+      const normDt = b.production_date;
       if (normDt) {
         const parts = normDt.split('-');
         if (parts[1]) monthNo = parseInt(parts[1], 10);
@@ -388,68 +441,54 @@ export default function MonthlyProductionReportPage() {
       if (!groups[groupKey]) {
         groups[groupKey] = {
           month_no: monthNo,
-          production_date: normDt || rawDt,
+          production_date: normDt,
           product: prodIdentifier,
           product_code: prodCode,
-          production_code: prodCodeCandidate || p.production_code || '—',
+          production_code: prodCodeCandidate,
           product_name: prodName,
           uom: uom,
+          total_steps: totalSteps,
           stage1_qty: 0,
           stage2_qty: 0,
           stage3_qty: 0,
+          total_produced_qty: 0,
           finished_goods_qty: 0,
+          dispatched_qty: 0,
+          return_qty: 0,
+          available_stock: 0,
           rejected_qty: 0,
           total_production_cost: 0,
           batch_count: 0,
           batches: [],
+          dispatches: [],
+          returns: [],
+          inventory_breakdown: {},
         };
       }
 
       const g = groups[groupKey];
-      // Keep latest production date for representation
-      if (normDt && normDt > normalizeDateStr(g.production_date)) {
+      if (normDt && (!g.production_date || normDt > normalizeDateStr(g.production_date))) {
         g.production_date = normDt;
         const parts = normDt.split('-');
         if (parts[1]) g.month_no = parseInt(parts[1], 10);
       }
 
-      if (prodCodeCandidate && (!g.production_code || g.production_code === '—')) {
-        g.production_code = prodCodeCandidate;
-      }
-
-      const qty = Number(b.quantity || b.produced_qty || b.input_qty) || 0;
+      const qty = Number(b.quantity || b.produced_qty || b.accepted_qty) || 0;
       const rejPct = Number(b.rejection_percent) || 0;
       const rejQty = Number(b.rejected_qty) > 0 ? Number(b.rejected_qty) : (qty * rejPct) / 100;
 
-      // Net production cost calculation without double counting carried material
       const bTotal = Number(b.batch_total) || 0;
       const carried = Number(b.carried_cost) || 0;
       const added = Number(b.added_cost) || 0;
-      const rejCost = Number(b.rejection_amount) || 0;
-      const tooling = Number(b.tooling_amount) || 0;
       const unitCost = Number(b.unit_cost) || 0;
 
       let netCost = 0;
       if (b.stage_num === 1) {
-        netCost = bTotal > 0 ? bTotal : (added + rejCost > 0 ? added + rejCost : unitCost * qty);
+        netCost = bTotal > 0 ? bTotal : added;
       } else if (b.stage_num === 2) {
-        if (carried > 0 && bTotal >= carried) {
-          netCost = bTotal - carried;
-        } else {
-          netCost = (added + rejCost) > 0 ? (added + rejCost) : (bTotal > 0 ? bTotal : unitCost * qty);
-        }
+        netCost = (carried > 0 && bTotal >= carried) ? (bTotal - carried) : (added > 0 ? added : bTotal);
       } else {
-        if (carried > 0 && bTotal >= carried) {
-          netCost = bTotal - carried;
-        } else {
-          netCost = (added + tooling + rejCost) > 0 ? (added + tooling + rejCost) : (bTotal > 0 ? bTotal : unitCost * qty);
-        }
-      }
-
-      // Fallback if batch has 0 cost
-      if (netCost <= 0 && qty > 0) {
-        const stdCost = Number(p.production_cost || p.valuation_rate || 0);
-        if (stdCost > 0) netCost = stdCost * qty;
+        netCost = (carried > 0 && bTotal >= carried) ? (bTotal - carried) : (added > 0 ? added : bTotal);
       }
 
       if (b.stage_num === 1) g.stage1_qty += qty;
@@ -460,14 +499,8 @@ export default function MonthlyProductionReportPage() {
       g.total_production_cost += netCost;
       g.batch_count += 1;
 
-      // Check for partial transfers to Finished Goods
-      const trQty = transferredMap[b.batch_no || b.name] || 0;
-      if (b.stage_num === 3 && trQty > 0) {
-        g.finished_goods_qty += trQty;
-      }
-
       g.batches.push({
-        production_date: normDt || rawDt,
+        production_date: normDt,
         batch_no: b.batch_no || b.name || '',
         product_code: prodCode,
         production_code: g.production_code,
@@ -475,30 +508,116 @@ export default function MonthlyProductionReportPage() {
         stage: b.stage_label || `Stage ${b.stage_num}`,
         produced_qty: qty,
         rejected_qty: rejQty,
-        batch_status: b.status || (b.docstatus === 1 ? 'Submitted' : 'Active'),
+        batch_status: b.status || 'Completed',
         production_cost: bTotal > 0 ? bTotal : netCost,
         unit_cost: unitCost > 0 ? unitCost : (qty > 0 ? netCost / qty : 0),
       });
     });
 
-    // 4. Assign Finished Goods quantities to product rows
+    // 5. Also include products with dispatches or returns in date range even if production was earlier
+    dispatchesByProd.forEach((dispQty, pId) => {
+      if (!groups[pId]) {
+        const p = prodMap.get(pId) || {};
+        const pCode = p.product_code || pId;
+        const pName = p.product_name || pId;
+        const totalSteps = Number(p.total_steps || 3);
+        const avail = stockByProd.get(pId) || stockByProd.get(pCode) || 0;
+        groups[pId] = {
+          month_no: 1,
+          production_date: normTo || normFrom || '',
+          product: pId,
+          product_code: pCode,
+          production_code: p.production_code || '—',
+          product_name: pName,
+          uom: p.uom || 'PCS',
+          total_steps: totalSteps,
+          stage1_qty: 0,
+          stage2_qty: 0,
+          stage3_qty: 0,
+          total_produced_qty: 0,
+          finished_goods_qty: 0,
+          dispatched_qty: dispQty,
+          return_qty: returnsByProd.get(pId) || returnsByProd.get(pCode) || 0,
+          available_stock: avail,
+          rejected_qty: 0,
+          total_production_cost: 0,
+          batch_count: 0,
+          batches: [],
+          dispatches: dispatchDetailsByProd.get(pId) || [],
+          returns: returnDetailsByProd.get(pId) || returnDetailsByProd.get(pCode) || [],
+          inventory_breakdown: inventoryBreakdown.get(pId) || {},
+        };
+      }
+    });
+
+    returnsByProd.forEach((retQty, pId) => {
+      if (!groups[pId]) {
+        const p = prodMap.get(pId) || {};
+        const pCode = p.product_code || pId;
+        const pName = p.product_name || pId;
+        const totalSteps = Number(p.total_steps || 3);
+        const avail = stockByProd.get(pId) || stockByProd.get(pCode) || 0;
+        groups[pId] = {
+          month_no: 1,
+          production_date: normTo || normFrom || '',
+          product: pId,
+          product_code: pCode,
+          production_code: p.production_code || '—',
+          product_name: pName,
+          uom: p.uom || 'PCS',
+          total_steps: totalSteps,
+          stage1_qty: 0,
+          stage2_qty: 0,
+          stage3_qty: 0,
+          total_produced_qty: 0,
+          finished_goods_qty: 0,
+          dispatched_qty: 0,
+          return_qty: retQty,
+          available_stock: avail,
+          rejected_qty: 0,
+          total_production_cost: 0,
+          batch_count: 0,
+          batches: [],
+          dispatches: [],
+          returns: returnDetailsByProd.get(pId) || returnDetailsByProd.get(pCode) || [],
+          inventory_breakdown: inventoryBreakdown.get(pId) || {},
+        };
+      }
+    });
+
+    // 6. Finalize calculations: Total Produced, Dispatched, Return Qty, Available Stock
     const result = Object.values(groups);
     result.forEach((g) => {
-      const pKey = g.product;
-      const fgFound =
-        fgTransfersByProd.get(pKey) ||
-        fgTransfersByProd.get(g.product_code) ||
-        fgTransfersByProd.get(g.product_name) ||
-        0;
+      const pId = g.product;
+      const pCode = g.product_code;
 
-      if (g.finished_goods_qty === 0) {
-        if (fgFound > 0) {
-          g.finished_goods_qty = fgFound;
-        } else if (g.stage3_qty > 0) {
-          // If stage 3 completed output exists and inventory shows finished
-          g.finished_goods_qty = Math.max(0, g.stage3_qty - g.rejected_qty);
-        }
+      // Rule 8: calculate total finished production from the final completed production stage
+      const totalSteps = Number(g.total_steps || 3);
+      let totalProduced = 0;
+      if (totalSteps === 1) {
+        totalProduced = g.stage1_qty;
+      } else if (totalSteps === 2) {
+        totalProduced = g.stage2_qty;
+      } else {
+        totalProduced = g.stage3_qty;
       }
+      g.total_produced_qty = totalProduced;
+      g.finished_goods_qty = totalProduced;
+
+      g.dispatched_qty = dispatchesByProd.get(pId) || dispatchesByProd.get(pCode) || 0;
+      g.dispatches = dispatchDetailsByProd.get(pId) || dispatchDetailsByProd.get(pCode) || [];
+
+      g.return_qty = returnsByProd.get(pId) || returnsByProd.get(pCode) || 0;
+      g.returns = returnDetailsByProd.get(pId) || returnDetailsByProd.get(pCode) || [];
+
+      // Available stock
+      let avail = stockByProd.get(pId) ?? stockByProd.get(pCode);
+      if (avail === undefined || avail === null) {
+        const finalKey = `Stage ${totalSteps}`;
+        avail = inventoryBreakdown.get(pId)?.[finalKey] ?? 0;
+      }
+      g.available_stock = Number(avail || 0);
+      g.inventory_breakdown = inventoryBreakdown.get(pId) || {};
     });
 
     return result.sort((a, b) => {
@@ -507,7 +626,20 @@ export default function MonthlyProductionReportPage() {
       if (dA !== dB) return dB.localeCompare(dA);
       return a.product_name.localeCompare(b.product_name);
     });
-  }, [stage1Batches, stage2Batches, stage3Batches, datewiseRecords, serverInventory, prodMap, fromDate, toDate, isDateRangeInvalid]);
+  }, [
+    stage1Batches,
+    stage2Batches,
+    stage3Batches,
+    dispatchesList,
+    dispatchItemsList,
+    customerReturnsList,
+    customerReturnItemsList,
+    serverInventory,
+    prodMap,
+    fromDate,
+    toDate,
+    isDateRangeInvalid,
+  ]);
 
   // Use server rows if populated, otherwise use computed client rows
   const allRows = useMemo(() => {
@@ -523,21 +655,46 @@ export default function MonthlyProductionReportPage() {
           if (parts[1]) mNo = parseInt(parts[1], 10);
         }
 
+        const stage1Qty = Number(r.stage1_qty ?? 0);
+        const stage2Qty = Number(r.stage2_qty ?? 0);
+        const stage3Qty = Number(r.stage3_qty ?? 0);
+        const totalSteps = Number(r.total_steps ?? p.total_steps ?? 3);
+
+        // Rule 8: calculate total finished production from the final completed production stage
+        let totalProduced = Number(r.total_produced_qty ?? r.finished_goods_qty ?? 0);
+        if (totalProduced === 0 && (stage1Qty > 0 || stage2Qty > 0 || stage3Qty > 0)) {
+          if (totalSteps === 1) totalProduced = stage1Qty;
+          else if (totalSteps === 2) totalProduced = stage2Qty;
+          else totalProduced = stage3Qty;
+        }
+
         return {
           ...r,
           month_no: mNo || 1,
           production_date: normDt || r.production_date,
           product: prodId,
           product_code: r.product_code || p.product_code || prodId || '—',
-          production_code: r.production_code && r.production_code !== '—' ? r.production_code : (p.production_code || '—'),
+          production_code:
+            r.production_code && r.production_code !== '—'
+              ? r.production_code
+              : p.production_code || '—',
           product_name: r.product_name || p.product_name || prodId || '—',
           uom: r.uom || p.uom || 'PCS',
-          stage1_qty: Number(r.stage1_qty ?? r.insert_output ?? r.insert_input ?? 0),
-          stage2_qty: Number(r.stage2_qty ?? r.casting_output ?? r.casting_input ?? 0),
-          stage3_qty: Number(r.stage3_qty ?? r.cnc_output ?? r.cnc_input ?? 0),
-          finished_goods_qty: Number(r.finished_goods_qty ?? r.total_accepted_final ?? 0),
+          total_steps: totalSteps,
+          stage1_qty: stage1Qty,
+          stage2_qty: stage2Qty,
+          stage3_qty: stage3Qty,
+          total_produced_qty: totalProduced,
+          finished_goods_qty: totalProduced,
+          dispatched_qty: Number(r.dispatched_qty ?? r.total_dispatched_qty ?? 0),
+          return_qty: Number(r.return_qty ?? r.customer_return_qty ?? 0),
+          available_stock: Number(r.available_stock ?? 0),
           rejected_qty: Number(r.rejected_qty ?? 0),
           total_production_cost: Number(r.total_production_cost ?? 0),
+          batches: r.batches || [],
+          dispatches: r.dispatches || [],
+          returns: r.returns || [],
+          inventory_breakdown: r.inventory_breakdown || {},
         };
       });
     }
@@ -550,7 +707,8 @@ export default function MonthlyProductionReportPage() {
       if (productSearch.trim()) {
         const q = productSearch.trim().toLowerCase();
         const pName = (r.product_name || r.product || '').toLowerCase();
-        if (!pName.includes(q)) return false;
+        const pCode = (r.product_code || '').toLowerCase();
+        if (!pName.includes(q) && !pCode.includes(q)) return false;
       }
       if (productCodeFilter.trim()) {
         const q = productCodeFilter.trim().toLowerCase();
@@ -571,7 +729,10 @@ export default function MonthlyProductionReportPage() {
     let stage1Total = 0,
       stage2Total = 0,
       stage3Total = 0,
-      fgTotal = 0,
+      totalProduced = 0,
+      totalDispatched = 0,
+      returnTotal = 0,
+      availableStock = 0,
       rejectedTotal = 0,
       costTotal = 0;
 
@@ -579,7 +740,10 @@ export default function MonthlyProductionReportPage() {
       stage1Total += Number(r.stage1_qty) || 0;
       stage2Total += Number(r.stage2_qty) || 0;
       stage3Total += Number(r.stage3_qty) || 0;
-      fgTotal += Number(r.finished_goods_qty) || 0;
+      totalProduced += Number(r.total_produced_qty) || 0;
+      totalDispatched += Number(r.dispatched_qty) || 0;
+      returnTotal += Number(r.return_qty) || 0;
+      availableStock += Number(r.available_stock) || 0;
       rejectedTotal += Number(r.rejected_qty) || 0;
       costTotal += Number(r.total_production_cost) || 0;
     });
@@ -588,7 +752,10 @@ export default function MonthlyProductionReportPage() {
       stage1Total,
       stage2Total,
       stage3Total,
-      fgTotal,
+      totalProduced,
+      totalDispatched,
+      returnTotal,
+      availableStock,
       rejectedTotal,
       costTotal,
     };
@@ -603,36 +770,37 @@ export default function MonthlyProductionReportPage() {
 
   const primaryUom = filteredRows[0]?.uom || 'PCS';
 
-  // Export to CSV with all columns
+  // Export to CSV with all required columns
   const handleExportCSV = () => {
     if (!filteredRows.length) return;
     const headers = [
       '#',
-      'Production Date',
       'Product Code',
-      'Production Code',
       'Product Name',
       'UOM',
-      'Stage 1 – Insert Making Qty',
-      'Stage 2 – PU & Casting Qty',
-      'Stage 3 – CNC Qty',
-      'Finished Goods Qty',
+      'Stage 1 Produced Qty',
+      'Stage 2 Produced Qty',
+      'Stage 3 Produced Qty',
+      'Total Produced Qty',
+      'Total Dispatched Qty',
+      'Return Qty',
+      'Remaining Available Inventory',
       'Rejected Qty',
       'Total Production Cost',
     ];
 
     const csvRows = filteredRows.map((r, i) => [
       i + 1,
-      r.month_no || 1,
-      `"${r.production_date || ''}"`,
       `"${r.product_code || ''}"`,
-      `"${r.production_code || ''}"`,
       `"${r.product_name || ''}"`,
       `"${r.uom || 'PCS'}"`,
       r.stage1_qty || 0,
       r.stage2_qty || 0,
       r.stage3_qty || 0,
-      r.finished_goods_qty || 0,
+      r.total_produced_qty || 0,
+      r.dispatched_qty || 0,
+      r.return_qty || 0,
+      r.available_stock || 0,
       r.rejected_qty || 0,
       r.total_production_cost || 0,
     ]);
@@ -641,19 +809,18 @@ export default function MonthlyProductionReportPage() {
     csvRows.push([
       'Total',
       '',
-      `"${reportingPeriodLabel}"`,
-      '',
-      '',
       '"Grand Total"',
       `"${primaryUom}"`,
       overall.stage1Total,
       overall.stage2Total,
       overall.stage3Total,
-      overall.fgTotal,
+      overall.totalProduced,
+      overall.totalDispatched,
+      overall.returnTotal,
+      overall.availableStock,
       overall.rejectedTotal,
       overall.costTotal,
     ]);
-      
 
     const csvContent =
       'data:text/csv;charset=utf-8,' +
@@ -703,20 +870,9 @@ export default function MonthlyProductionReportPage() {
             <Typography variant="h5" sx={{ fontWeight: 750, color: '#12262a' }}>
               Monthly Production Report
             </Typography>
-            <Chip
-              size="small"
-              label={`${filteredRows.length} Product Rows`}
-              sx={{
-                bgcolor: '#e6f0ee',
-                color: palette.teal,
-                fontWeight: 700,
-                fontSize: 12,
-                borderRadius: '8px',
-              }}
-            />
           </Stack>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Total quantity produced in each production stage for <strong>{reportingPeriodLabel}</strong>.
+            Total quantities produced, confirmed dispatches, return quantities, and available stock.
           </Typography>
         </Box>
 
@@ -771,54 +927,71 @@ export default function MonthlyProductionReportPage() {
         </Alert>
       )}
 
-      {/* 4 Summary Cards at the Top */}
+      {/* 6 Summary Stat Cards */}
       <Box
         sx={{
           display: 'grid',
           gridTemplateColumns: {
             xs: '1fr',
             sm: 'repeat(2, 1fr)',
-            md: 'repeat(4, 1fr)',
+            md: 'repeat(3, 1fr)',
+            lg: 'repeat(6, 1fr)',
           },
-          gap: 2,
+          gap: 1.5,
           mb: 3,
         }}
       >
         <StatCard
-          label="Total Stage 1 – Insert Making"
+          label="Total Produced"
+          value={`${fmtNum(overall.totalProduced, 0)} ${primaryUom}`}
+          subtitle="Final completed output"
+          icon={CheckCircleOutlineRounded}
+          iconBg="#ecfdf5"
+          iconColor="#059669"
+        />
+        <StatCard
+          label="Total Dispatched"
+          value={`${fmtNum(overall.totalDispatched, 0)} ${primaryUom}`}
+          subtitle="Confirmed dispatches"
+          icon={LocalShippingOutlined}
+          iconBg="#eff6ff"
+          iconColor="#2563eb"
+        />
+        <StatCard
+          label="Total Returned"
+          value={`${fmtNum(overall.returnTotal, 0)} ${primaryUom}`}
+          subtitle="Customer returns"
+          icon={AssignmentReturnOutlined}
+          iconBg="#fffbeb"
+          iconColor="#d97706"
+        />
+        <StatCard
+          label="Stage 1 Produced"
           value={`${fmtNum(overall.stage1Total, 0)} ${primaryUom}`}
-          //subtitle={`Stage 1 output • ${reportingPeriodLabel}`}
+          subtitle="Insert making output"
           icon={PrecisionManufacturingOutlined}
           iconBg="#eef2ff"
           iconColor="#4338ca"
         />
         <StatCard
-          label="Total Stage 2 – PU & Casting"
+          label="Stage 2 Produced"
           value={`${fmtNum(overall.stage2Total, 0)} ${primaryUom}`}
-          //subtitle={`Stage 2 output • ${reportingPeriodLabel}`}
+          subtitle="PU & casting output"
           icon={TuneOutlined}
           iconBg="#f5f3ff"
           iconColor="#6d28d9"
         />
         <StatCard
-          label="Total Stage 3 – CNC"
+          label="Stage 3 Produced"
           value={`${fmtNum(overall.stage3Total, 0)} ${primaryUom}`}
-          //subtitle={`Stage 3 output • ${reportingPeriodLabel}`}
+          subtitle="CNC machining output"
           icon={ElectricBoltOutlined}
           iconBg="#fffbeb"
           iconColor="#b45309"
         />
-        <StatCard
-          label="Total Finished Goods"
-          value={`${fmtNum(overall.fgTotal, 0)} ${primaryUom}`}
-          //subtitle={`Transferred into FG • ${reportingPeriodLabel}`}
-          icon={CheckCircleOutlineRounded}
-          iconBg="#ecfdf5"
-          iconColor="#059669"
-        />
       </Box>
 
-      {/* Report Filters: From Date, To Date, Product Name, Product Code, Production Code */}
+      {/* Report Filters */}
       <Paper
         variant="outlined"
         sx={{
@@ -830,14 +1003,12 @@ export default function MonthlyProductionReportPage() {
         }}
       >
         <Stack spacing={1.5}>
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-            <FilterListRounded sx={{ fontSize: 20, color: palette.teal }} />
-            <Typography variant="subtitle2" sx={{ fontWeight: 750, color: '#12262a' }}>
-              Report Filters
-            </Typography>
-          </Stack>
 
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ alignItems: { md: 'center' }, flexWrap: 'wrap', gap: 1 }}>
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            spacing={1.5}
+            sx={{ alignItems: { md: 'center' }, flexWrap: 'wrap', gap: 1 }}
+          >
             {/* Filter 1: From Date */}
             <Box sx={{ width: { xs: '100%', sm: 160 } }}>
               <Typography variant="caption" sx={{ fontWeight: 650, color: 'text.secondary', mb: 0.3, display: 'block' }}>
@@ -872,17 +1043,17 @@ export default function MonthlyProductionReportPage() {
               />
             </Box>
 
-            {/* Filter 3: Product Name */}
-            <Box sx={{ flex: 1, minWidth: 170 }}>
+            {/* Filter 3: Product Search */}
+            <Box sx={{ flex: 1, minWidth: 200 }}>
               <Typography variant="caption" sx={{ fontWeight: 650, color: 'text.secondary', mb: 0.3, display: 'block' }}>
-                Product Name
+                Product Name / Code
               </Typography>
               <TextField
-                placeholder="Search product…"
+                placeholder="Search product name or code…"
                 value={productSearch}
                 onChange={(e) => setProductSearch(e.target.value)}
                 size="small"
-                
+                fullWidth
                 slotProps={{
                   input: {
                     startAdornment: (
@@ -895,8 +1066,6 @@ export default function MonthlyProductionReportPage() {
                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: '10px', bgcolor: '#f8faf9' } }}
               />
             </Box>
-
-            
 
             {/* Reset Button */}
             {isFiltered && (
@@ -920,51 +1089,105 @@ export default function MonthlyProductionReportPage() {
         <TableContainer sx={{ maxHeight: 720 }}>
           <Table stickyHeader size="small">
             <TableHead>
-              <TableRow sx={{ '& th': { bgcolor: '#f8faf9', fontWeight: 750, color: '#1e293b', whiteSpace: 'nowrap', py: 1.25 } }}>
+              <TableRow
+                sx={{
+                  '& th': {
+                    bgcolor: '#f8faf9',
+                    fontWeight: 750,
+                    color: '#1e293b',
+                    whiteSpace: 'nowrap',
+                    py: 1,
+                    px: 0.75,
+                    fontSize: 12,
+                  },
+                }}
+              >
                 {/* 1. Row Counter */}
-                <TableCell align="center" sx={{ width: 50 }}>#</TableCell>
-                {/* 2. Production Date */}
-                <TableCell align="center">Production Date</TableCell>
-                {/* 4. Product Code */}
-                {/* <TableCell>Product Code</TableCell> */}
-                {/* 5. Production Code */}
-                {/* <TableCell>Production Code</TableCell> */}
-                {/* 6. Product Name */}
-                <TableCell>Product Name</TableCell>
-                {/* 7. UOM */}
-                <TableCell align="center">UOM</TableCell>
-                {/* 8. Stage 1 Total Qty */}
-                <TableCell align="center" sx={{ color: '#4338ca' }}>
-                  Stage 1 Total Qty
+                <TableCell align="center" sx={{ width: 35, px: 0.5 }}>#</TableCell>
+                {/* 2. Product Code */}
+                <TableCell sx={{ minWidth: 85, px: 0.75 }}>Product Code</TableCell>
+                {/* 3. Product Name */}
+                <TableCell sx={{ minWidth: 140, px: 0.75 }}>Product Name</TableCell>
+                {/* 4. Stage 1 Produced Quantity */}
+                <TableCell align="center" sx={{ color: '#4338ca', minWidth: 60, px: 0.5 }}>
+                  Stage 1
                 </TableCell>
-                {/* 9. Stage 2 Total Qty */}
-                <TableCell align="center" sx={{ color: '#6d28d9' }}>
-                  Stage 2 Total Qty
+                {/* 5. Stage 2 Produced Quantity */}
+                <TableCell align="center" sx={{ color: '#6d28d9', minWidth: 60, px: 0.5 }}>
+                  Stage 2
                 </TableCell>
-                {/* 10. Stage 3 Total Qty */}
-                <TableCell align="center" sx={{ color: '#b45309' }}>
-                  Stage 3 Total Qty
+                {/* 6. Stage 3 Produced Quantity */}
+                <TableCell align="center" sx={{ color: '#b45309', minWidth: 60, px: 0.5 }}>
+                  Stage 3
                 </TableCell>
-                {/* 11. Finished Goods Qty */}
-                <TableCell align="center" sx={{ color: '#059669' }}>
-                  Finished Goods Qty
+                {/* 7. Total Produced Quantity */}
+                <TableCell
+                  align="center"
+                  sx={{
+                    color: '#059669',
+                    bgcolor: '#f0fdf4 !important',
+                    fontWeight: 800,
+                    minWidth: 75,
+                    px: 0.5,
+                  }}
+                >
+                  Total Produced
                 </TableCell>
-                {/* 12. Rejected Qty */}
-                <TableCell align="center" sx={{ color: '#dc2626' }}>
-                  Rejected Qty
+                {/* 8. Total Dispatched/Sold Quantity */}
+                <TableCell
+                  align="center"
+                  sx={{
+                    color: '#2563eb',
+                    bgcolor: '#eff6ff !important',
+                    fontWeight: 800,
+                    minWidth: 70,
+                    px: 0.5,
+                  }}
+                >
+                  Total Dis.
                 </TableCell>
-                {/* 13. Total Production Cost */}
-                <TableCell align="right" sx={{ color: '#0f766e', fontWeight: 800 }}>
-                  Total Production Cost
+                {/* 9. Return Quantity */}
+                <TableCell
+                  align="center"
+                  sx={{
+                    color: '#d97706',
+                    bgcolor: '#fffbeb !important',
+                    fontWeight: 800,
+                    minWidth: 70,
+                    px: 0.5,
+                  }}
+                >
+                  Return Qty
+                </TableCell>
+                {/* 10. Remaining Available Inventory */}
+                <TableCell
+                  align="center"
+                  sx={{
+                    color: '#0f766e',
+                    bgcolor: '#f0fdfa !important',
+                    fontWeight: 800,
+                    minWidth: 75,
+                    px: 0.5,
+                  }}
+                >
+                  Available Stock
+                </TableCell>
+                {/* 11. Rejected Qty */}
+                <TableCell align="center" sx={{ color: '#dc2626', minWidth: 60, px: 0.5 }}>
+                  Rej. Qty
+                </TableCell>
+                {/* 12. Total Production Cost */}
+                <TableCell align="right" sx={{ color: '#0f766e', fontWeight: 800, minWidth: 90, px: 0.75 }}>
+                  Total Cost
                 </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {isLoading ? (
-                Array.from({ length: 8 }).map((_, i) => (
+                Array.from({ length: 6 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 13 }).map((__, j) => (
-                      <TableCell key={j}>
+                    {Array.from({ length: 12 }).map((__, j) => (
+                      <TableCell key={j} sx={{ py: 1, px: 0.75 }}>
                         <Skeleton height={24} />
                       </TableCell>
                     ))}
@@ -972,13 +1195,13 @@ export default function MonthlyProductionReportPage() {
                 ))
               ) : paginatedRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={13} sx={{ py: 6, textAlign: 'center' }}>
+                  <TableCell colSpan={12} sx={{ py: 6, textAlign: 'center' }}>
                     <CalendarMonthOutlined sx={{ fontSize: 40, color: 'text.secondary', mb: 1 }} />
                     <Typography variant="body1" sx={{ fontWeight: 700 }}>
                       No production data recorded
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      No batch or inventory transactions found matching your selected date range and filters.
+                      No completed production batches or dispatches found matching your selected date range and filters.
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -992,65 +1215,107 @@ export default function MonthlyProductionReportPage() {
                       onClick={() => setDrilldownRow(row)}
                       sx={{ cursor: 'pointer', '&:hover': { bgcolor: '#f8faf9' } }}
                     >
-                      {/* 1. Row Counting: 1, 2, ... N */}
-                      <TableCell align="center" sx={{ fontWeight: 700, color: 'text.secondary', fontSize: 12 }}>
+                      {/* 1. Row Counter */}
+                      <TableCell align="center" sx={{ fontWeight: 700, color: 'text.secondary', fontSize: 12, px: 0.5 }}>
                         {rowNumber}
                       </TableCell>
 
-                     
-
-                      {/* 3. Production Date */}
-                      <TableCell align="center" sx={{ fontSize: 12, color: '#475569', whiteSpace: 'nowrap' }}>
-                        {fmtDate(row.production_date)}
+                      {/* 2. Product Code */}
+                      <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700, color: '#334155', fontSize: 12, px: 0.75 }}>
+                        {row.product_code || row.product}
                       </TableCell>
 
-
-                     
-
-                      {/* 6. Product Name */}
-                      <TableCell sx={{ fontWeight: 700, color: '#12262a', minWidth: 160 }}>
+                      {/* 3. Product Name */}
+                      <TableCell sx={{ fontWeight: 750, color: '#12262a', minWidth: 140, px: 0.75 }}>
                         {row.product_name || row.product}
                       </TableCell>
 
-                      {/* 7. UOM */}
-                      <TableCell align="center" sx={{ fontSize: 11.5, color: 'text.secondary', fontWeight: 600 }}>
-                        {row.uom || 'PCS'}
-                      </TableCell>
-
-                      {/* 8. Stage 1 Total Qty */}
-                      <TableCell align="center" sx={{ fontWeight: 700, fontSize: 13, color: '#4338ca' }}>
+                      {/* 4. Stage 1 Produced Quantity */}
+                      <TableCell align="center" sx={{ fontWeight: 700, fontSize: 12.5, color: '#4338ca', px: 0.5 }}>
                         {fmtNum(row.stage1_qty, 2)}
                       </TableCell>
 
-                      {/* 9. Stage 2 Total Qty */}
-                      <TableCell align="center" sx={{ fontWeight: 700, fontSize: 13, color: '#6d28d9' }}>
+                      {/* 5. Stage 2 Produced Quantity */}
+                      <TableCell align="center" sx={{ fontWeight: 700, fontSize: 12.5, color: '#6d28d9', px: 0.5 }}>
                         {fmtNum(row.stage2_qty, 2)}
                       </TableCell>
 
-                      {/* 10. Stage 3 Total Qty */}
-                      <TableCell align="center" sx={{ fontWeight: 700, fontSize: 13, color: '#b45309' }}>
+                      {/* 6. Stage 3 Produced Quantity */}
+                      <TableCell align="center" sx={{ fontWeight: 700, fontSize: 12.5, color: '#b45309', px: 0.5 }}>
                         {fmtNum(row.stage3_qty, 2)}
                       </TableCell>
 
-                      {/* 11. Finished Goods Qty */}
-                      <TableCell align="center" sx={{ fontWeight: 800, color: '#059669', bgcolor: '#f0fdf4', fontSize: 13 }}>
-                        {fmtNum(row.finished_goods_qty, 2)}
+                      {/* 7. Total Produced Quantity */}
+                      <TableCell
+                        align="center"
+                        sx={{
+                          fontWeight: 800,
+                          color: '#059669',
+                          bgcolor: '#f0fdf4',
+                          fontSize: 13,
+                          px: 0.5,
+                        }}
+                      >
+                        {fmtNum(row.total_produced_qty, 2)}
                       </TableCell>
 
-                      {/* 12. Rejected Qty */}
+                      {/* 8. Total Dispatched/Sold Quantity */}
+                      <TableCell
+                        align="center"
+                        sx={{
+                          fontWeight: 800,
+                          color: '#2563eb',
+                          bgcolor: '#eff6ff',
+                          fontSize: 13,
+                          px: 0.5,
+                        }}
+                      >
+                        {fmtNum(row.dispatched_qty, 2)}
+                      </TableCell>
+
+                      {/* 9. Return Quantity */}
+                      <TableCell
+                        align="center"
+                        sx={{
+                          fontWeight: 800,
+                          color: '#d97706',
+                          bgcolor: '#fffbeb',
+                          fontSize: 13,
+                          px: 0.5,
+                        }}
+                      >
+                        {fmtNum(row.return_qty, 2)}
+                      </TableCell>
+
+                      {/* 10. Remaining Available Inventory */}
+                      <TableCell
+                        align="center"
+                        sx={{
+                          fontWeight: 800,
+                          color: '#0f766e',
+                          bgcolor: '#f0fdfa',
+                          fontSize: 13,
+                          px: 0.5,
+                        }}
+                      >
+                        {fmtNum(row.available_stock, 2)}
+                      </TableCell>
+
+                      {/* 11. Rejected Qty */}
                       <TableCell
                         align="center"
                         sx={{
                           fontWeight: 700,
-                          fontSize: 12.5,
+                          fontSize: 12,
                           color: Number(row.rejected_qty) > 0 ? '#dc2626' : 'text.secondary',
+                          px: 0.5,
                         }}
                       >
                         {fmtNum(row.rejected_qty, 2)}
                       </TableCell>
 
-                      {/* 13. Total Production Cost */}
-                      <TableCell align="right" sx={{ fontWeight: 800, color: '#0f766e', fontSize: 13.5, whiteSpace: 'nowrap' }}>
+                      {/* 12. Total Production Cost */}
+                      <TableCell align="right" sx={{ fontWeight: 800, color: '#0f766e', fontSize: 13, whiteSpace: 'nowrap', px: 0.75 }}>
                         {fmtMoney(row.total_production_cost, 2)}
                       </TableCell>
                     </TableRow>
@@ -1062,27 +1327,36 @@ export default function MonthlyProductionReportPage() {
             {/* Grand Total Row at Bottom */}
             {filteredRows.length > 0 && (
               <TableFooter sx={{ position: 'sticky', bottom: 0, zIndex: 2 }}>
-                <TableRow sx={{ '& td': { bgcolor: '#f1f5f9', fontWeight: 800, py: 1.5, borderTop: '2px solid #cbd5e1' } }}>
-                  <TableCell align="center" sx={{ color: 'text.secondary', fontWeight: 700 }}></TableCell>
-                  <TableCell align="center" sx={{ color: 'text.secondary' }}></TableCell>
-                  <TableCell align="center" sx={{ color: 'text.secondary' }}></TableCell>
-                  <TableCell sx={{ color: '#1e293b', fontWeight: 800 }}>Grand Total</TableCell>
-                  <TableCell align="center" sx={{ color: '#4338ca', fontSize: 13.5 }}>
+                <TableRow sx={{ '& td': { bgcolor: '#f1f5f9', fontWeight: 800, py: 1.25, borderTop: '2px solid #cbd5e1' } }}>
+                  <TableCell align="center" sx={{ color: 'text.secondary', fontWeight: 700, px: 0.5 }}></TableCell>
+                  <TableCell sx={{ color: '#1e293b', fontWeight: 800, px: 0.75 }} colSpan={2}>
+                    Grand Total
+                  </TableCell>
+                  <TableCell align="center" sx={{ color: '#4338ca', fontSize: 13, px: 0.5 }}>
                     {fmtNum(overall.stage1Total, 2)}
                   </TableCell>
-                  <TableCell align="center" sx={{ color: '#6d28d9', fontSize: 13.5 }}>
+                  <TableCell align="center" sx={{ color: '#6d28d9', fontSize: 13, px: 0.5 }}>
                     {fmtNum(overall.stage2Total, 2)}
                   </TableCell>
-                  <TableCell align="center" sx={{ color: '#b45309', fontSize: 13.5 }}>
+                  <TableCell align="center" sx={{ color: '#b45309', fontSize: 13, px: 0.5 }}>
                     {fmtNum(overall.stage3Total, 2)}
                   </TableCell>
-                  <TableCell align="center" sx={{ color: '#059669', bgcolor: '#dcfce7', fontSize: 14 }}>
-                    {fmtNum(overall.fgTotal, 2)}
+                  <TableCell align="center" sx={{ color: '#059669', bgcolor: '#dcfce7 !important', fontSize: 13.5, px: 0.5 }}>
+                    {fmtNum(overall.totalProduced, 2)}
                   </TableCell>
-                  <TableCell align="center" sx={{ color: '#dc2626', fontSize: 13.5 }}>
+                  <TableCell align="center" sx={{ color: '#1d4ed8', bgcolor: '#dbeafe !important', fontSize: 13.5, px: 0.5 }}>
+                    {fmtNum(overall.totalDispatched, 2)}
+                  </TableCell>
+                  <TableCell align="center" sx={{ color: '#d97706', bgcolor: '#fef3c7 !important', fontSize: 13.5, px: 0.5 }}>
+                    {fmtNum(overall.returnTotal, 2)}
+                  </TableCell>
+                  <TableCell align="center" sx={{ color: '#0f766e', bgcolor: '#ccfbf1 !important', fontSize: 13.5, px: 0.5 }}>
+                    {fmtNum(overall.availableStock, 2)}
+                  </TableCell>
+                  <TableCell align="center" sx={{ color: '#dc2626', fontSize: 13, px: 0.5 }}>
                     {fmtNum(overall.rejectedTotal, 2)}
                   </TableCell>
-                  <TableCell align="right" sx={{ color: '#0f766e', fontSize: 14, whiteSpace: 'nowrap', fontWeight: 800 }}>
+                  <TableCell align="right" sx={{ color: '#0f766e', fontSize: 13.5, whiteSpace: 'nowrap', fontWeight: 800, px: 0.75 }}>
                     {fmtMoney(overall.costTotal, 2)}
                   </TableCell>
                 </TableRow>
@@ -1105,7 +1379,7 @@ export default function MonthlyProductionReportPage() {
         />
       </Paper>
 
-      {/* Batch-wise Drill-down Modal (Click row to view details) */}
+      {/* Batch & Dispatch Drill-down Modal */}
       <Dialog
         open={!!drilldownRow}
         onClose={() => setDrilldownRow(null)}
@@ -1117,7 +1391,7 @@ export default function MonthlyProductionReportPage() {
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
             <Box>
               <Typography variant="h6" sx={{ fontWeight: 750, color: '#12262a' }}>
-                Batch Drill-down: {drilldownRow?.product_name}
+                Production & Dispatch Details: {drilldownRow?.product_name}
               </Typography>
               <Stack direction="row" spacing={1.5} sx={{ mt: 0.5, alignItems: 'center', flexWrap: 'wrap', gap: 0.5 }}>
                 <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
@@ -1126,10 +1400,6 @@ export default function MonthlyProductionReportPage() {
                 <Typography variant="caption" color="text.secondary">•</Typography>
                 <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
                   Production Code: <strong>{drilldownRow?.production_code}</strong>
-                </Typography>
-                <Typography variant="caption" color="text.secondary">•</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Production Date: <strong>{fmtDate(drilldownRow?.production_date)}</strong>
                 </Typography>
                 <Typography variant="caption" color="text.secondary">•</Typography>
                 <Typography variant="caption" color="text.secondary">
@@ -1143,8 +1413,81 @@ export default function MonthlyProductionReportPage() {
           </Stack>
         </DialogTitle>
         <DialogContent sx={{ p: 2.5 }}>
+          {/* Top Quick KPI Strip */}
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 1.5,
+              mb: 3,
+              borderRadius: '12px',
+              bgcolor: '#f8faf9',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 2,
+              justifyContent: 'space-around',
+            }}
+          >
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 650 }}>
+                STAGE 1 PRODUCED
+              </Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, color: '#4338ca' }}>
+                {fmtNum(drilldownRow?.stage1_qty, 2)} {drilldownRow?.uom}
+              </Typography>
+            </Box>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 650 }}>
+                STAGE 2 PRODUCED
+              </Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, color: '#6d28d9' }}>
+                {fmtNum(drilldownRow?.stage2_qty, 2)} {drilldownRow?.uom}
+              </Typography>
+            </Box>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 650 }}>
+                STAGE 3 PRODUCED
+              </Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, color: '#b45309' }}>
+                {fmtNum(drilldownRow?.stage3_qty, 2)} {drilldownRow?.uom}
+              </Typography>
+            </Box>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 650 }}>
+                TOTAL PRODUCED
+              </Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, color: '#059669' }}>
+                {fmtNum(drilldownRow?.total_produced_qty, 2)} {drilldownRow?.uom}
+              </Typography>
+            </Box>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 650 }}>
+                TOTAL DISPATCHED
+              </Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, color: '#2563eb' }}>
+                {fmtNum(drilldownRow?.dispatched_qty, 2)} {drilldownRow?.uom}
+              </Typography>
+            </Box>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 650 }}>
+                RETURN QTY
+              </Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, color: '#d97706' }}>
+                {fmtNum(drilldownRow?.return_qty, 2)} {drilldownRow?.uom}
+              </Typography>
+            </Box>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 650 }}>
+                AVAILABLE STOCK
+              </Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, color: '#0f766e' }}>
+                {fmtNum(drilldownRow?.available_stock, 2)} {drilldownRow?.uom}
+              </Typography>
+            </Box>
+          </Paper>
+
+          {/* Section 1: Production Batches */}
           <Typography variant="subtitle2" sx={{ fontWeight: 750, mb: 1, color: '#12262a' }}>
-            Production Batches ({drilldownRow?.batches?.length || 0})
+            Completed Production Batches ({drilldownRow?.batches?.length || 0})
           </Typography>
           <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: '10px', mb: 3 }}>
             <Table size="small">
@@ -1152,22 +1495,19 @@ export default function MonthlyProductionReportPage() {
                 <TableRow sx={{ '& th': { bgcolor: '#f8faf9', fontWeight: 700 } }}>
                   <TableCell>Production Date</TableCell>
                   <TableCell>Batch Number</TableCell>
-                  <TableCell>Product Code</TableCell>
-                  <TableCell>Production Code</TableCell>
-                  <TableCell>Product Name</TableCell>
                   <TableCell>Production Stage</TableCell>
                   <TableCell align="right">Produced Quantity</TableCell>
                   <TableCell align="right">Rejected Quantity</TableCell>
                   <TableCell align="center">Batch Status</TableCell>
                   <TableCell align="right">Unit Cost</TableCell>
-                  <TableCell align="right">Actual Production Cost</TableCell>
+                  <TableCell align="right">Production Cost</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {(!drilldownRow?.batches || drilldownRow.batches.length === 0) ? (
                   <TableRow>
-                    <TableCell colSpan={11} sx={{ textAlign: 'center', py: 3, color: 'text.secondary' }}>
-                      No direct batch details recorded.
+                    <TableCell colSpan={8} sx={{ textAlign: 'center', py: 2.5, color: 'text.secondary' }}>
+                      No completed production batches recorded in this period.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -1175,18 +1515,9 @@ export default function MonthlyProductionReportPage() {
                     <TableRow key={idx} hover>
                       <TableCell sx={{ fontSize: 12 }}>{fmtDate(b.production_date)}</TableCell>
                       <TableCell sx={{ fontFamily: 'monospace', fontWeight: 650, fontSize: 12 }}>{b.batch_no}</TableCell>
-                      <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{b.product_code || drilldownRow.product_code}</TableCell>
-                      <TableCell>
-                        <Chip
-                          size="small"
-                          label={b.production_code || drilldownRow.production_code}
-                          sx={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 700, height: 18 }}
-                        />
-                      </TableCell>
-                      <TableCell sx={{ fontSize: 12, fontWeight: 600 }}>{b.product_name || drilldownRow.product_name}</TableCell>
-                      <TableCell sx={{ fontSize: 12 }}>{b.stage}</TableCell>
+                      <TableCell sx={{ fontSize: 12, fontWeight: 600 }}>{b.stage}</TableCell>
                       <TableCell align="right" sx={{ fontWeight: 700, color: '#059669', fontSize: 12 }}>
-                        {fmtNum(b.produced_qty, 2)}
+                        {fmtNum(b.produced_qty, 2)} {drilldownRow.uom}
                       </TableCell>
                       <TableCell align="right" sx={{ color: Number(b.rejected_qty) > 0 ? '#dc2626' : 'text.secondary', fontSize: 12 }}>
                         {fmtNum(b.rejected_qty, 2)}
@@ -1211,48 +1542,140 @@ export default function MonthlyProductionReportPage() {
             </Table>
           </TableContainer>
 
-          {/* Finished Goods Transfer Details */}
+          {/* Section 2: Confirmed Dispatches */}
           <Typography variant="subtitle2" sx={{ fontWeight: 750, mb: 1, color: '#12262a' }}>
-            Finished Goods Transfers
+            Confirmed Dispatches in Period ({drilldownRow?.dispatches?.length || 0})
           </Typography>
-          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: '10px' }}>
+          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: '10px', mb: 3 }}>
             <Table size="small">
               <TableHead>
                 <TableRow sx={{ '& th': { bgcolor: '#f8faf9', fontWeight: 700 } }}>
-                  <TableCell>Transfer Date</TableCell>
-                  <TableCell>Source Stage / Batch</TableCell>
-                  <TableCell>Destination</TableCell>
-                  <TableCell align="right">Transferred Quantity</TableCell>
+                  <TableCell>Dispatch Date</TableCell>
+                  <TableCell>Dispatch Voucher</TableCell>
+                  <TableCell>Customer</TableCell>
+                  <TableCell>Sales Order</TableCell>
+                  <TableCell align="right">Dispatched Quantity</TableCell>
                   <TableCell align="right">Unit Cost</TableCell>
                   <TableCell align="center">Status</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {drilldownRow?.finished_goods_qty > 0 ? (
-                  <TableRow hover>
-                    <TableCell sx={{ fontSize: 12 }}>{fmtDate(drilldownRow.production_date)}</TableCell>
-                    <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>Stage 3 / CNC Batch</TableCell>
-                    <TableCell sx={{ fontSize: 12 }}>Finished Goods Store</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700, color: '#059669', fontSize: 12 }}>
-                      {fmtNum(drilldownRow.finished_goods_qty, 2)} {drilldownRow.uom}
-                    </TableCell>
-                    <TableCell align="right" sx={{ fontSize: 12 }}>
-                      {drilldownRow.stage3_qty > 0 ? fmtMoney(drilldownRow.total_production_cost / drilldownRow.stage3_qty, 2) : '—'}
-                    </TableCell>
-                    <TableCell align="center">
-                      <Chip size="small" label="Transferred" color="success" sx={{ height: 20, fontSize: 10.5, fontWeight: 700 }} />
+                {(!drilldownRow?.dispatches || drilldownRow.dispatches.length === 0) ? (
+                  <TableRow>
+                    <TableCell colSpan={7} sx={{ textAlign: 'center', py: 2.5, color: 'text.secondary' }}>
+                      No confirmed dispatches recorded for this product in this period.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  <TableRow>
-                    <TableCell colSpan={6} sx={{ textAlign: 'center', py: 2, color: 'text.secondary' }}>
-                      No Finished Goods transfer transactions in this period.
-                    </TableCell>
-                  </TableRow>
+                  drilldownRow.dispatches.map((d, idx) => (
+                    <TableRow key={idx} hover>
+                      <TableCell sx={{ fontSize: 12 }}>{fmtDate(d.dispatch_date)}</TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace', fontWeight: 650, fontSize: 12 }}>{d.dispatch_no}</TableCell>
+                      <TableCell sx={{ fontSize: 12, fontWeight: 600 }}>{d.customer || '—'}</TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{d.sales_order || '—'}</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, color: '#2563eb', fontSize: 12 }}>
+                        {fmtNum(d.quantity, 2)} {drilldownRow.uom}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontSize: 12 }}>
+                        {d.unit_cost > 0 ? fmtMoney(d.unit_cost, 2) : '—'}
+                      </TableCell>
+                      <TableCell align="center">
+                        <Chip size="small" label="Dispatched" color="primary" variant="outlined" sx={{ height: 20, fontSize: 10.5, fontWeight: 700 }} />
+                      </TableCell>
+                    </TableRow>
+                  ))
                 )}
               </TableBody>
             </Table>
           </TableContainer>
+
+          {/* Section 2b: Confirmed Customer Returns */}
+          <Typography variant="subtitle2" sx={{ fontWeight: 750, mb: 1, color: '#12262a' }}>
+            Confirmed Customer Returns in Period ({drilldownRow?.returns?.length || 0})
+          </Typography>
+          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: '10px', mb: 3 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ '& th': { bgcolor: '#f8faf9', fontWeight: 700 } }}>
+                  <TableCell>Return Date</TableCell>
+                  <TableCell>Return Voucher</TableCell>
+                  <TableCell>Customer</TableCell>
+                  <TableCell>Dispatch Ref</TableCell>
+                  <TableCell>Sales Order</TableCell>
+                  <TableCell align="right">Returned Quantity</TableCell>
+                  <TableCell align="center">Condition</TableCell>
+                  <TableCell align="center">Status</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(!drilldownRow?.returns || drilldownRow.returns.length === 0) ? (
+                  <TableRow>
+                    <TableCell colSpan={8} sx={{ textAlign: 'center', py: 2.5, color: 'text.secondary' }}>
+                      No confirmed customer returns recorded for this product in this period.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  drilldownRow.returns.map((ret, idx) => (
+                    <TableRow key={idx} hover>
+                      <TableCell sx={{ fontSize: 12 }}>{fmtDate(ret.return_date)}</TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace', fontWeight: 650, fontSize: 12 }}>{ret.return_no}</TableCell>
+                      <TableCell sx={{ fontSize: 12, fontWeight: 600 }}>{ret.customer || '—'}</TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{ret.dispatch || '—'}</TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{ret.sales_order || '—'}</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, color: '#d97706', fontSize: 12 }}>
+                        {fmtNum(ret.return_qty, 2)} {drilldownRow.uom}
+                      </TableCell>
+                      <TableCell align="center">
+                        <Chip
+                          size="small"
+                          label={ret.condition || 'Usable'}
+                          color={ret.condition === 'Scrap' ? 'error' : 'default'}
+                          variant="outlined"
+                          sx={{ height: 20, fontSize: 10.5 }}
+                        />
+                      </TableCell>
+                      <TableCell align="center">
+                        <Chip size="small" label="Confirmed" color="warning" variant="outlined" sx={{ height: 20, fontSize: 10.5, fontWeight: 700 }} />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          {/* Section 3: Current Inventory Breakdown */}
+          <Typography variant="subtitle2" sx={{ fontWeight: 750, mb: 1, color: '#12262a' }}>
+            Current Stock Balance by Stage
+          </Typography>
+          <Paper variant="outlined" sx={{ p: 2, borderRadius: '10px' }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ justifyContent: 'space-around' }}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary">Finished Goods Warehouse</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 800, color: '#059669' }}>
+                  {fmtNum(drilldownRow?.available_stock, 2)} {drilldownRow?.uom}
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary">Stage 3 (CNC)</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#b45309' }}>
+                  {fmtNum(drilldownRow?.inventory_breakdown?.['Stage 3'] || 0, 2)} {drilldownRow?.uom}
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary">Stage 2 (PU & Casting)</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#6d28d9' }}>
+                  {fmtNum(drilldownRow?.inventory_breakdown?.['Stage 2'] || 0, 2)} {drilldownRow?.uom}
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary">Stage 1 (Insert Making)</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#4338ca' }}>
+                  {fmtNum(drilldownRow?.inventory_breakdown?.['Stage 1'] || 0, 2)} {drilldownRow?.uom}
+                </Typography>
+              </Box>
+            </Stack>
+          </Paper>
         </DialogContent>
       </Dialog>
     </Box>

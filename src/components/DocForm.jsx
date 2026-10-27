@@ -165,10 +165,10 @@ export default function DocForm({ config, doc, open, onClose }) {
     onClose();
   };
 
-  const visible = (f) => !f.showIf || f.showIf(values);
+  const visible = (f) => !f.showIf || f.showIf(values, { isNew, doc });
   const main = config.fields.filter((f) => !f.summary && visible(f));
   const summary = config.fields.filter((f) => f.summary);
-  const tables = (config.tables || []).filter((t) => !t.showIf || t.showIf(values));
+  const tables = (config.tables || []).filter((t) => !t.showIf || t.showIf(values, { isNew, doc }));
   const banner = config.banner?.(values);
   const busy = save.isPending || act.isPending;
 
@@ -177,7 +177,16 @@ export default function DocForm({ config, doc, open, onClose }) {
     return (
       <Box key={t.name}>
         {err && <Alert severity="error" sx={{ mb: 1.5 }}>{err}</Alert>}
-        <ChildTable table={t} control={control} disabled={locked} registry={registry} setValue={setValue} getValues={getValues} />
+        <ChildTable
+          table={t}
+          control={control}
+          disabled={locked}
+          registry={registry}
+          setValue={setValue}
+          getValues={getValues}
+          isNew={isNew}
+          doc={doc}
+        />
       </Box>
     );
   };

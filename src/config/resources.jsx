@@ -7,9 +7,12 @@ import React from 'react';
 import { Box, Button, Chip, LinearProgress, Stack, Typography } from '@mui/material';
 import AssignmentReturnIcon from '@mui/icons-material/AssignmentReturn';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import { call, deleteDoc, getDoc, insertDoc, runAction, updateDoc } from '../api/client';
 import { db } from '../db/dexie';
 import { purchaseCalc, salesCalc, stageCalc, computeQuotationPR } from '../lib/formulas';
+import { generateSalesOrderPDF, generateDispatchPDF, generateGoodsReceiptPDF } from '../lib/pdfUtils';
+
 import QtyDialog from '../components/QtyDialog';
 import ReturnDialog from '../components/ReturnDialog';
 import GoodsReceiptDialog from '../components/GoodsReceiptDialog';
@@ -243,20 +246,30 @@ const purchase = {
   plural: 'Purchase Orders',
   completable: false,
   subtitle: 'Purchase orders for raw materials. Goods Receipt adds stock upon arrival.',
+  summaryTitle: 'Purchase Summary',
+  summaryColumns: 6,
   fields: [
     link('vendor', 'Vendor', 'Vendor', { required: true }),
     date('posting_date', 'Order date', { required: true }),
     date('expected_delivery_date', 'Expected delivery'),
     t('bill_no', 'Supplier Bill / Ref'),
-    // ro(t('status', 'Status', { default: () => 'Draft' })),
     ro(t('vendor_state', 'Vendor state')),
-    cur('extra_charges', 'Extra charges', { required: false, default: () => 0 }),
-    sum(cur('taxable_amount', 'Taxable amount')),
-    sum(cur('tax_amount', 'Tax amount', { required: false, default: () => 0 })),
-    sum(cur('grand_total', 'Grand total')),
-    sum(num('total_ordered_qty', 'Total ordered')),
-    sum(num('total_received_qty', 'Total received')),
-    sum(num('total_pending_qty', 'Total pending')),
+    ro(num('total_received_qty', 'Total Received', { showIf: (_, { isNew } = {}) => !isNew })),
+    ro(num('total_pending_qty', 'Total Pending', { showIf: (_, { isNew } = {}) => !isNew })),
+
+    // Summary fields in exact required order:
+    // 1. Total Order Qty
+    sum(num('total_ordered_qty', 'Total Order Qty')),
+    // 2. Subtotal
+    sum(cur('taxable_amount', 'Subtotal')),
+    // 3. Extra Charges
+    { ...cur('extra_charges', 'Extra Charges', { default: () => 0 }), summary: true, editable: true },
+    // 4. GST %
+    { ...num('gst_percent', 'GST %', { max: 100, default: () => 0 }), summary: true, editable: true },
+    // 5. GST Amount
+    sum(cur('tax_amount', 'GST Amount', { default: () => 0 })),
+    // 6. Grand Total
+    sum(cur('grand_total', 'Grand Total')),
   ],
   tables: [{
     name: 'items',
@@ -274,13 +287,13 @@ const purchase = {
     fields: [
       link('product', 'Product', 'Product', { filter: raw, required: true, minWidth: 220, labelField: 'product_name' }),
       num('quantity', 'Ordered Qty', { positive: true }),
-      ro(num('received_qty', 'Received')),
-      ro(num('pending_qty', 'Pending')),
       ro(t('uom', 'UOM')),
       cur('rate', 'Rate'),
-      num('gst_percent', 'GST %', { max: 100 }),
       ro(cur('amount', 'Amount')),
-      ro(cur('landed_rate', 'Landed rate', { dp: 4 })),
+      ro(num('received_qty', 'Received', { showIf: (_, { isNew } = {}) => !isNew })),
+      ro(num('pending_qty', 'Pending', { showIf: (_, { isNew } = {}) => !isNew })),
+      num('gst_percent', 'GST %', { hidden: true, showIf: () => false }),
+      ro(cur('landed_rate', 'Landed rate', { dp: 4, showIf: (_, { isNew } = {}) => !isNew })),
     ],
   }],
   compute: (v, ctx) => purchaseCalc(v, ctx),
@@ -576,6 +589,26 @@ const quotation = {
             color="default"
           />
         )}
+        <Button
+          size="small"
+          variant="contained"
+          startIcon={<DownloadRoundedIcon fontSize="small" />}
+          onClick={() => generateQuotationPDF(doc || v)}
+          sx={{
+            fontSize: 11.5,
+            fontWeight: 600,
+            py: 0.4,
+            px: 1.5,
+            bgcolor: '#0d2b56',
+            '&:hover': { bgcolor: '#1e3a8a' },
+            color: '#ffffff',
+            borderRadius: '6px',
+            textTransform: 'none',
+            boxShadow: '0 2px 6px rgba(13, 43, 86, 0.25)',
+          }}
+        >
+          Download PDF
+        </Button>
       </Box>
     );
   },
@@ -706,6 +739,27 @@ const quotation = {
         const soResult = await runAction('Quotation', r.name, 'make_sales_order');
         const soName = soResult.result;
         return `Created Sales Order ${soName}`;
+      },
+    },
+    {
+      key: 'download_pdf',
+      label: 'Download PDF',
+      variant: 'contained',
+      sx: {
+        bgcolor: '#1e3a8a',
+        '&:hover': { bgcolor: '#0d2b56' },
+        color: '#ffffff',
+        fontSize: 12,
+        fontWeight: 500,
+        py: 0.2,
+        px: 1, 
+        textTransform: 'none',
+        boxShadow: '0 1px 3px rgba(13, 43, 86, 0.2)',
+      },
+      show: () => true,
+      run: async (r) => {
+        await generateQuotationPDF(r);
+        return `Quotation PDF ready for ${r.name}`;
       },
     },
   ],
@@ -918,6 +972,20 @@ const salesOrder = {
         return `Sales Order ${r.name} cancelled.`;
       },
     },
+    {
+      key: 'download',
+      label: 'Download PDF',
+      show: (r) => true,
+      icon: DownloadRoundedIcon,
+      variant: 'contained',
+      sx: { bgcolor: '#1b5e20', color: '#fff', '&:hover': { bgcolor: '#2e7d32' }, fontWeight: 700, fontSize: '0.72rem', px: 1.2, py: 0.4, mr: 0.5 },
+      run: async (r) => {
+        const doc = await getDoc('Sales Order', r.name);
+        if (!doc) return 'Sales Order not found';
+        generateSalesOrderPDF(doc);
+        return `PDF generated for ${r.name}`;
+      },
+    },
   ],
 };
 
@@ -1042,6 +1110,18 @@ const dispatch = {
         return isConfirmed
           ? `Dispatch ${r.name} cancelled — stock restored.`
           : `Dispatch ${r.name} cancelled.`;
+      },
+    },
+    {
+      key: 'download_pdf',
+      label: 'Download PDF',
+      show: () => true,
+      variant: 'contained',
+      sx: { bgcolor: '#1b5e20', color: '#fff', '&:hover': { bgcolor: '#2e7d32' }, fontWeight: 700, fontSize: '0.72rem', px: 1.2, py: 0.4, mr: 0.5 },
+      run: async (r) => {
+        const fullDoc = await getDoc('Dispatch', r.name);
+        await generateDispatchPDF(fullDoc || r);
+        return `PDF generated for ${r.name}`;
       },
     },
   ],
@@ -1178,7 +1258,7 @@ const goodsReceipt = {
     ro(t('vendor', 'Vendor')),
     date('posting_date', 'Receipt Date', { required: true }),
     t('supplier_delivery_note', 'Delivery Note / Challan'),
-    ro(t('status', 'Status')),
+    //ro(t('status', 'Status')),
     ro(cur('total_amount', 'Total Value')),
     ro(num('total_qty', 'Total Quantity')),
     { name: 'remarks', label: 'Remarks', type: 'textarea' },
@@ -1188,13 +1268,23 @@ const goodsReceipt = {
     fields: [
       link('product', 'Product', 'Product', { readOnly: true }),
       ro(t('uom', 'UOM')),
-      ro(num('ordered_qty', 'Ordered')),
-      ro(num('already_received_qty', 'Previously Received')),
-      ro(num('received_qty', 'Received Now')),
-      ro(cur('landed_rate', 'Landed Cost')),
+      ro(num('received_qty', 'Received Qty')),
+      ro(cur('landed_rate', 'Rate / Unit', { dp: 4 })),
       ro(cur('amount', 'Amount')),
     ],
   }],
+  compute: (v) => ({
+  top: {},
+  rows: {
+    items: (v.items || []).map((row) => ({
+      ...row,
+      amount:
+        (Number(row.received_qty) || 0) *
+        (Number(row.landed_rate) || 0),
+    })),
+  },
+}),
+  
   columns: [
     col('name', 'Receipt No'),
     col('purchase_order', 'PO No'),
@@ -1215,6 +1305,18 @@ const goodsReceipt = {
         if (!ok) return `Goods Receipt ${r.name} not cancelled.`;
         await call('clssurya.api.cancel_goods_receipt', { goods_receipt_name: r.name });
         return `Goods Receipt ${r.name} cancelled — stock reversed.`;
+      },
+    },
+    {
+      key: 'download_pdf',
+      label: 'Download PDF',
+      show: () => true,
+      variant: 'contained',
+      sx: { bgcolor: '#1b5e20', color: '#fff', '&:hover': { bgcolor: '#2e7d32' }, fontWeight: 700, fontSize: '0.72rem', px: 1.2, py: 0.4, mr: 0.5 },
+      run: async (r) => {
+        const fullDoc = await getDoc('Goods Receipt', r.name);
+        await generateGoodsReceiptPDF(fullDoc || r);
+        return `PDF generated for ${r.name}`;
       },
     },
   ],

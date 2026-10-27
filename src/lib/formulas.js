@@ -146,47 +146,71 @@ export function stageCalc(stage, v) {
 
 /** Live preview for Purchase Entry. @param {object} v @param {{masters:object, companyState:string}} ctx */
 export function purchaseCalc(v, { masters = {}, companyState } = {}) {
-  const cState = companyState || Object.values(masters.Company || {})[0]?.default_state || '';
-  const vendorState = masters.Vendor?.[v.vendor]?.state || '';
+  const cState = companyState || Object.values(masters.Company || {})[0]?.default_state || 'Gujarat';
+  const vendorState = masters.Vendor?.[v.vendor]?.state || v.vendor_state || '';
   let taxable = 0;
-  let tax = 0;
-  let rowExtra = 0;
   let totalOrdered = 0;
   let totalReceived = 0;
 
+  const extraCharges = Math.max(0, n(v.extra_charges));
+  const gstPct = Math.max(0, n(v.gst_percent));
+
   const items = (v.items || []).map((r) => {
-    const q = n(r.quantity);
-    const rcv = n(r.received_qty);
+    const q = Math.max(0, n(r.quantity));
+    const rate = Math.max(0, n(r.rate));
+    const rcv = Math.max(0, n(r.received_qty));
     const pend = Math.max(0, q - rcv);
     totalOrdered += q;
     totalReceived += rcv;
 
-    const amount = q * n(r.rate);
-    rowExtra += n(r.extra_charge);
-    const g = splitGst(amount, r.gst_percent, vendorState, cState);
+    const amount = money(q * rate);
     taxable += amount;
-    tax += g.cgst + g.sgst + g.igst;
+
     return {
+      quantity: q,
+      rate,
       amount,
-      ...g,
-      uom: masters.Product?.[r.product]?.uom || '',
+      uom: r.uom || masters.Product?.[r.product]?.uom || '',
       received_qty: rcv,
       pending_qty: pend,
+      gst_percent: gstPct > 0 ? gstPct : n(r.gst_percent),
     };
   });
-  const shares = allocateExtra(items.map((i) => i.amount), v.extra_charges);
+
+  const shares = allocateExtra(items.map((i) => i.amount), extraCharges);
   items.forEach((it, i) => {
-    const q = n(v.items[i].quantity);
-    // landed = amount + this row's extra charge + its share of the bill-level extra charges
-    it.landed_rate = q ? (it.amount + n(v.items[i].extra_charge) + shares[i]) / q : 0;
+    const q = it.quantity;
+    it.landed_rate = q ? Math.round(((it.amount + shares[i]) / q + Number.EPSILON) * 10000) / 10000 : 0;
+    const itemGst = gstPct > 0 ? gstPct : n(v.items?.[i]?.gst_percent);
+    const g = splitGst(it.amount, itemGst, vendorState, cState);
+    it.cgst = g.cgst;
+    it.sgst = g.sgst;
+    it.igst = g.igst;
   });
+
+  let tax = 0;
+  if (gstPct > 0) {
+    const taxableBase = taxable + extraCharges;
+    const g = splitGst(taxableBase, gstPct, vendorState, cState);
+    tax = money(g.cgst + g.sgst + g.igst);
+  } else {
+    items.forEach((it) => {
+      tax += (it.cgst || 0) + (it.sgst || 0) + (it.igst || 0);
+    });
+    tax = money(tax);
+  }
+
+  const grandTotal = money(taxable + extraCharges + tax);
   const totalPending = Math.max(0, totalOrdered - totalReceived);
+
   return {
     top: {
       vendor_state: vendorState,
-      taxable_amount: taxable,
+      taxable_amount: money(taxable),
+      extra_charges: extraCharges,
+      gst_percent: gstPct,
       tax_amount: tax,
-      grand_total: taxable + tax + n(v.extra_charges) + rowExtra,
+      grand_total: grandTotal,
       total_ordered_qty: totalOrdered,
       total_received_qty: totalReceived,
       total_pending_qty: totalPending,

@@ -153,7 +153,16 @@ export default function CrudPage({ config, embedded = false }) {
                     {!config.readOnlyList && (
                       <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                         {(config.rowActions || []).filter((a) => a.show(row, isAdmin)).map((a) => (
-                          <Button key={a.key} size="small" sx={{ mr: 0.5 }} disabled={action.isPending} onClick={() => action.mutate({ row, a })}>{a.label}</Button>
+                          <Button
+                            key={a.key}
+                            size="small"
+                            variant={a.variant || 'text'}
+                            sx={{ mr: 0.5, ...(a.sx || {}) }}
+                            disabled={action.isPending}
+                            onClick={() => action.mutate({ row, a })}
+                          >
+                            {a.label}
+                          </Button>
                         ))}
                         <Tooltip title={locked ? 'View' : 'Edit'}>
                           <IconButton size="small" onClick={() => openRow(row)} aria-label={locked ? 'View' : 'Edit'}>{locked ? <VisibilityIcon fontSize="small" /> : <EditIcon fontSize="small" />}</IconButton>

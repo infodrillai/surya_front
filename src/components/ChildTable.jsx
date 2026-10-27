@@ -5,11 +5,15 @@ import { useFieldArray, useWatch } from 'react-hook-form';
 import Field from './Field';
 
 /** Editable child table built on useFieldArray. `registry` lets the form replace rows after an API load. */
-export default function ChildTable({ table, control, disabled, registry, setValue, getValues }) {
+export default function ChildTable({ table, control, disabled, registry, setValue, getValues, isNew, doc }) {
   const { fields, append, remove, replace } = useFieldArray({ control, name: table.name, keyName: '_key' });
   registry.current[table.name] = replace;
   const rows = useWatch({ control, name: table.name }) || [];
   const canEdit = !disabled && !table.readOnly;
+
+  const visibleFields = table.fields.filter(
+    (f) => !f.hidden && (!f.showIf || f.showIf(rows, { isNew, doc }))
+  );
 
   return (
     <Box>
@@ -18,18 +22,18 @@ export default function ChildTable({ table, control, disabled, registry, setValu
           <TableHead>
             <TableRow>
               <TableCell width={40}>#</TableCell>
-              {table.fields.map((f) => <TableCell key={f.name}>{f.label}</TableCell>)}
+              {visibleFields.map((f) => <TableCell key={f.name}>{f.label}</TableCell>)}
               {canEdit && !table.noAdd && <TableCell width={48} />}
             </TableRow>
           </TableHead>
           <TableBody>
             {fields.length === 0 && (
-              <TableRow><TableCell colSpan={table.fields.length + 2}><Typography variant="body2" color="text.secondary">{table.empty || 'No rows yet.'}</Typography></TableCell></TableRow>
+              <TableRow><TableCell colSpan={visibleFields.length + 2}><Typography variant="body2" color="text.secondary">{table.empty || 'No rows yet.'}</Typography></TableCell></TableRow>
             )}
             {fields.map((row, i) => (
               <TableRow key={row._key} hover>
                 <TableCell>{i + 1}</TableCell>
-                {table.fields.map((f) => (
+                {visibleFields.map((f) => (
                   <TableCell key={f.name} sx={{ py: 0.75 }}>
                     <Field
                       f={{ ...f, readOnly: f.readOnly || f.readOnlyIf?.(rows[i] || {}) }}

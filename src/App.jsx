@@ -14,6 +14,7 @@ import InventoryPage from './pages/InventoryPage';
 import Login from './pages/Login';
 import MonthlyProductionReportPage from './pages/MonthlyProductionReportPage';
 import MachineTimeTrackingReportPage from './pages/MachineTimeTrackingReportPage';
+import PendingOrderAnalysisPage from './pages/PendingOrderAnalysisPage';
 import { useAuthStore } from './stores/authStore';
 import { useSyncStore } from './stores/syncStore';
 import { useUiStore } from './stores/uiStore';
@@ -59,6 +60,7 @@ function Shell() {
         <Route path="/inventory" element={<Guard path="/inventory"><InventoryPage /></Guard>} />
         <Route path="/batch" element={<Guard path="/batch"><BatchPage /></Guard>} />
         <Route path="/customer-outstanding" element={<Guard path="/customer-outstanding"><CustomerOutstandingPage /></Guard>} />
+        <Route path="/pending-order-analysis" element={<Guard path="/pending-order-analysis"><PendingOrderAnalysisPage /></Guard>} />
         <Route path="/monthly-production-report" element={<Guard path="/monthly-production-report"><MonthlyProductionReportPage /></Guard>} />
         <Route path="/machine-time-report" element={<Guard path="/machine-time-report"><MachineTimeTrackingReportPage /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />

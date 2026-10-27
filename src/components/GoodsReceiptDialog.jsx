@@ -20,6 +20,7 @@ import {
   TableBody,
   TableCell,
   TableContainer,
+  TableFooter,
   TableHead,
   TableRow,
   TextField,
@@ -398,73 +399,132 @@ export default function GoodsReceiptDialog({ open, poName, onClose }) {
               </Box>
             ) : (
               <Stack spacing={2}>
-                {history.map((h) => (
-                  <Paper key={h.name} variant="outlined" sx={{ p: 2 }}>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} sx={{ mb: 1.5 }}>
-                      <Stack direction="row" spacing={1.5} alignItems="center">
-                        <Typography variant="subtitle1" fontWeight={600}>
-                          {h.name}
-                        </Typography>
-                        <Chip
-                          size="small"
-                          label={h.status}
-                          color={RECEIPT_STATUS_COLOR[h.status] || 'default'}
-                        />
-                        <Typography variant="caption" color="text.secondary">
-                          Date: {fmtDate(h.posting_date)}
-                        </Typography>
+                {history.map((h) => {
+                  let grTotalQty = 0;
+                  let grTotalVal = 0;
+                  const itemRows = (h.items || []).map((row, idx) => {
+                    const poItem = (poData?.items || []).find(
+                      (it) => (row.purchase_order_item && it.purchase_order_item === row.purchase_order_item) || it.product === row.product
+                    );
+                    const rcvQty = Number(row.received_qty) || 0;
+                    const cost = Number(row.cost) || Number(row.landed_rate) || Number(row.rate) || Number(poItem?.landed_rate) || Number(poItem?.rate) || 0;
+                    const totalVal = Number(row.amount) || (rcvQty * cost);
+                    const uom = row.uom || poItem?.uom || 'Unit';
+
+                    grTotalQty += rcvQty;
+                    grTotalVal += totalVal;
+
+                    return {
+                      ...row,
+                      idx,
+                      rcvQty,
+                      cost,
+                      totalVal,
+                      uom,
+                      displayName: row.product_name || poItem?.product_name || row.product,
+                    };
+                  });
+
+                  return (
+                    <Paper key={h.name} variant="outlined" sx={{ p: 2 }}>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} sx={{ mb: 1.5 }}>
+                        <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" rowGap={0.5}>
+                          <Typography variant="subtitle1" fontWeight={600}>
+                            {h.name}
+                          </Typography>
+                          <Chip
+                            size="small"
+                            label={h.status}
+                            color={RECEIPT_STATUS_COLOR[h.status] || 'default'}
+                          />
+                          <Typography variant="caption" color="text.secondary">
+                            Date: {fmtDate(h.posting_date)}
+                          </Typography>
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            label={`Qty: ${fmtNum(grTotalQty)}`}
+                          />
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            color="primary"
+                            label={`Total: ${fmtMoney(grTotalVal)}`}
+                          />
+                        </Stack>
+                        {h.status === 'Confirmed' && (
+                          <Button
+                            size="small"
+                            color="error"
+                            variant="outlined"
+                            disabled={cancellingId === h.name}
+                            onClick={() => handleCancelReceipt(h.name)}
+                            startIcon={<CancelOutlinedIcon fontSize="small" />}
+                          >
+                            {cancellingId === h.name ? 'Cancelling…' : 'Cancel & Reverse Stock'}
+                          </Button>
+                        )}
                       </Stack>
-                      {h.status === 'Confirmed' && (
-                        <Button
-                          size="small"
-                          color="error"
-                          variant="outlined"
-                          disabled={cancellingId === h.name}
-                          onClick={() => handleCancelReceipt(h.name)}
-                          startIcon={<CancelOutlinedIcon fontSize="small" />}
-                        >
-                          {cancellingId === h.name ? 'Cancelling…' : 'Cancel & Reverse Stock'}
-                        </Button>
+
+                      {h.supplier_delivery_note && (
+                        <Typography variant="body2" sx={{ mb: 1 }}>
+                          <strong>Delivery Note:</strong> {h.supplier_delivery_note}
+                        </Typography>
                       )}
-                    </Stack>
+                      {h.remarks && (
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                          <strong>Remarks:</strong> {h.remarks}
+                        </Typography>
+                      )}
 
-                    {h.supplier_delivery_note && (
-                      <Typography variant="body2" sx={{ mb: 1 }}>
-                        <strong>Delivery Note:</strong> {h.supplier_delivery_note}
-                      </Typography>
-                    )}
-                    {h.remarks && (
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        <strong>Remarks:</strong> {h.remarks}
-                      </Typography>
-                    )}
-
-                    <TableContainer component={Paper} variant="outlined" sx={{ mt: 1 }}>
-                      <Table size="small">
-                        <TableHead>
-                          <TableRow sx={{ bgcolor: 'action.hover' }}>
-                            <TableCell>Product</TableCell>
-                            <TableCell align="center">UOM</TableCell>
-                            <TableCell align="right">Received Qty</TableCell>
-                            <TableCell align="right">Unit Cost</TableCell>
-                            <TableCell align="right">Total Value</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {(h.items || []).map((row, idx) => (
-                            <TableRow key={idx}>
-                              <TableCell>{row.product_name || row.product}</TableCell>
-                              <TableCell align="center">{row.uom || 'Unit'}</TableCell>
-                              <TableCell align="right" sx={{ fontWeight: 600 }}>{fmtNum(row.received_qty)}</TableCell>
-                              <TableCell align="right">{fmtMoney(row.landed_rate || row.rate)}</TableCell>
-                              <TableCell align="right">{fmtMoney(row.amount)}</TableCell>
+                      <TableContainer component={Paper} variant="outlined" sx={{ mt: 1 }}>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow sx={{ bgcolor: 'action.hover' }}>
+                              <TableCell>Product</TableCell>
+                              <TableCell align="center">UOM</TableCell>
+                              <TableCell align="right">Received Qty</TableCell>
+                              <TableCell align="right">Cost</TableCell>
+                              <TableCell align="right">Total Value</TableCell>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
-                  </Paper>
-                ))}
+                          </TableHead>
+                          <TableBody>
+                            {itemRows.map((row) => (
+                              <TableRow key={row.idx} hover>
+                                <TableCell>
+                                  <Typography variant="body2" fontWeight={600}>
+                                    {row.displayName}
+                                  </Typography>
+                                  {row.displayName !== row.product && (
+                                    <Typography variant="caption" color="text.secondary">
+                                      {row.product}
+                                    </Typography>
+                                  )}
+                                </TableCell>
+                                <TableCell align="center">{row.uom}</TableCell>
+                                <TableCell align="right" sx={{ fontWeight: 600 }}>{fmtNum(row.rcvQty)}</TableCell>
+                                <TableCell align="right">{fmtMoney(row.cost)}</TableCell>
+                                <TableCell align="right" sx={{ fontWeight: 600 }}>{fmtMoney(row.totalVal)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                          {itemRows.length > 0 && (
+                            <TableFooter>
+                              <TableRow sx={{ bgcolor: 'action.hover' }}>
+                                <TableCell colSpan={2} sx={{ fontWeight: 700 }}>Total</TableCell>
+                                <TableCell align="right" sx={{ fontWeight: 700 }}>{fmtNum(grTotalQty)}</TableCell>
+                                <TableCell align="right">-</TableCell>
+                                <TableCell align="right" sx={{ fontWeight: 700, color: 'primary.main' }}>
+                                  {fmtMoney(grTotalVal)}
+                                </TableCell>
+                              </TableRow>
+                            </TableFooter>
+                          )}
+                        </Table>
+                      </TableContainer>
+                    </Paper>
+                  );
+                })}
               </Stack>
             )}
           </Box>
