@@ -2,6 +2,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import { Box, Button, IconButton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import { useFieldArray, useWatch } from 'react-hook-form';
+import { useState } from 'react';
 import Field from './Field';
 
 /** Editable child table built on useFieldArray. `registry` lets the form replace rows after an API load. */
@@ -10,9 +11,11 @@ export default function ChildTable({ table, control, disabled, registry, setValu
   registry.current[table.name] = replace;
   const rows = useWatch({ control, name: table.name }) || [];
   const canEdit = !disabled && !table.readOnly;
+  const [discountEditing, setDiscountEditing] = useState({});
+  const inlineDiscount = table.itemDiscounts && rows.filter(r => Number(r.item_discount_percent) > 0).length <= 1;
 
   const visibleFields = table.fields.filter(
-    (f) => !f.hidden && (!f.showIf || f.showIf(rows, { isNew, doc }))
+    (f) => !f.hidden && !(inlineDiscount && f.name === 'item_discount_percent') && (!f.showIf || f.showIf(rows, { isNew, doc }))
   );
 
   return (
@@ -44,6 +47,11 @@ export default function ChildTable({ table, control, disabled, registry, setValu
                       setValue={setValue}
                       getValues={getValues}
                     />
+                    {inlineDiscount && f.name === 'product' && (
+                      Number(rows[i]?.item_discount_percent) > 0 || discountEditing[row._key] ?
+                        <Box sx={{ mt: 1.5 }}><Field f={table.fields.find(field => field.name === 'item_discount_percent')} name={`${table.name}.${i}.item_discount_percent`} control={control} disabled={disabled} /></Box> :
+                        canEdit && <Button size="small" onClick={() => setDiscountEditing(current => ({ ...current, [row._key]: true }))}>Add discount</Button>
+                    )}
                   </TableCell>
                 ))}
                 {canEdit && !table.noAdd && (

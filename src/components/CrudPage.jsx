@@ -19,7 +19,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useUiStore } from '../stores/uiStore';
 import DocForm from './DocForm';
 
-const STATUS_COLOR = { Approved: 'info', 'Partially Dispatched': 'warning', Completed: 'success', Accepted: 'success', Rejected: 'error', Superseded: 'default', Sent: 'info' };
+const STATUS_COLOR = { Approved: 'info', 'Partially Dispatched': 'warning', Completed: 'success', Accepted: 'success', Rejected: 'error', Disapproved: 'error', Superseded: 'default', Sent: 'info' };
 
 const DISPATCH_STATUS_COLOR = {
   Draft: 'default',
@@ -57,7 +57,7 @@ function Cell({ col, row }) {
   if (col.type === 'return-status') return <Chip size="small" color={RETURN_STATUS_COLOR[v] || 'default'} label={v || 'Draft'} />;
   if (col.type === 'purchase-status') return <Chip size="small" color={PURCHASE_STATUS_COLOR[v] || (row.is_completed ? 'success' : 'default')} label={v || (row.is_completed ? 'Received' : 'Draft')} />;
   if (col.type === 'receipt-status') return <Chip size="small" color={RECEIPT_STATUS_COLOR[v] || 'default'} label={v || 'Draft'} />;
-  if (col.type === 'currency') return fmtMoney(v, col.dp ?? 2);
+  if (col.type === 'currency') return row.currency ? `${row.currency} ${fmtNum(v, col.dp ?? 2)}` : fmtMoney(v, col.dp ?? 2);
   if (col.type === 'number') return fmtNum(v, col.dp ?? 3);
   if (col.type === 'date') return fmtDate(v);
   if (col.type === 'flag') return v ? <Chip size="small" color="warning" label="Below cost" /> : null;

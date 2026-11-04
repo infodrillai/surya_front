@@ -21,6 +21,9 @@ export const MENU = [
     {
         section: 'Master',
         items: [
+            { label: 'Currencies', path: '/quotation-currency', icon: TuneIcon, roles: [SALES] },
+            { label: 'Competitor companies', path: '/competitor-company', icon: TuneIcon, roles: [SALES] },
+            { label: 'Product codes', path: '/product-code-mapping', icon: TuneIcon, roles: [SALES] },
             { label: 'UOM', path: '/uom', icon: StraightenIcon },
             { label: 'Product', path: '/product', icon: Inventory2Icon },
             { label: 'Category', path: '/category', icon: CategoryIcon },

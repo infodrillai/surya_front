@@ -74,14 +74,20 @@ export function stageCalc(stage, v) {
 
   const items = (v.items || []).map((r) => {
     const price = n(r.unit_price);
-    const total = n(r.per_unit_utilization) * qty;
-    const actualAmount = n(r.actual_utilization) * price;
+    let perUnit = n(r.per_unit_utilization);
+    if (stage === 2 && n(v.size) > 0 && n(r.ratio) > 0) {
+      perUnit = n(v.size) / n(r.ratio);
+    }
+    const total = perUnit * qty;
+    const actualQty = (r.actual_utilization !== undefined && r.actual_utilization !== '') ? n(r.actual_utilization) : total;
+    const actualAmount = actualQty * price;
     const rowExtra = n(r.extra_cost) * qty;
 
     const out = {
+      per_unit_utilization: perUnit,
       total_utilization: total,
       amount: total * price,
-      per_unit_amount: n(r.per_unit_utilization) * price,
+      per_unit_amount: perUnit * price,
       actual_amount: actualAmount,
     };
 
@@ -92,7 +98,7 @@ export function stageCalc(stage, v) {
     }
 
     extraCostTotal += rowExtra;
-    used += n(r.actual_utilization);
+    used += actualQty;
 
     return out;
   });

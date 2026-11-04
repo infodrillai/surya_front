@@ -4,6 +4,7 @@
  *   readOnly?:boolean,readOnlyOnEdit?:boolean,summary?:boolean,positive?:boolean,showIf?:Function,options?:string[]}} FieldConfig
  */
 import React from 'react';
+import { enhanceQuotation, quotationMasters } from '../lib/quotationFeatures';
 import { Box, Button, Chip, LinearProgress, Stack, Typography } from '@mui/material';
 import AssignmentReturnIcon from '@mui/icons-material/AssignmentReturn';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -11,7 +12,7 @@ import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import { call, deleteDoc, getDoc, insertDoc, runAction, updateDoc } from '../api/client';
 import { db } from '../db/dexie';
 import { purchaseCalc, salesCalc, stageCalc, computeQuotationPR } from '../lib/formulas';
-import { generateSalesOrderPDF, generateDispatchPDF, generateGoodsReceiptPDF } from '../lib/pdfUtils';
+import { generateQuotationPDF, generateSalesOrderPDF, generateDispatchPDF, generateGoodsReceiptPDF } from '../lib/pdfUtils';
 
 import QtyDialog from '../components/QtyDialog';
 import ReturnDialog from '../components/ReturnDialog';
@@ -83,8 +84,8 @@ const customer = {
 
 // ---- Product (with its BOM inside) -----------------------------------------
 const raw = (r) => r.product_type === 'Raw';
-const bomRow = (extra = []) => [link('process', 'Process', 'Process'), link('product', 'Raw material', 'Product', { filter: raw, required: true, minWidth: 220 }), num('per_unit_utilization', 'Per-unit utilization', { positive: true }), ...extra];
-const BOM_TABLES = ['stage1_items', 'stage2_items', 'stage3_charges'];
+const bomRow = (extra = []) => [link('process', 'Process', 'Process'), link('product', 'Raw material', 'Product', { filter: (r) => r.product_type === 'Raw' || r.product_type === 'Semi', required: true, minWidth: 220 }), num('per_unit_utilization', 'Per-unit utilization', { positive: true }), ...extra];
+const BOM_TABLES = ['stage1_items', 'stage2_items', 'stage3_items', 'stage3_charges'];
 const steps = (v) => (v?.product_type && v.product_type !== 'Raw' ? Number(v.total_steps) || 3 : 0);
 
 const product = {
@@ -93,10 +94,31 @@ const product = {
   subtitle: 'Raw, semi-finished and finished products. Semi / Finished products carry their BOM stages here.',
   fields: [
     t('product_name', 'Product name', { required: true }),
+    { name: 'description', label: 'Description', type: 'textarea' },
+    t('image', 'Image URL (/files/...)'),
     t('product_code', 'Product code', { required: true, readOnlyOnEdit: true }),
     // NEW – Production Code (separate from product_code, used on finished-goods transfer)
     t('production_code', 'Production Code', { required: false }),
     sel('product_type', 'Product type', ['Raw', 'Semi', 'Finished'], { required: true, default: () => 'Raw' }),
+    sel('finished_good_type', 'Finished Good Type', ['PU', 'Belt'], {
+      showIf: (v) => v.product_type === 'Finished',
+      default: () => 'PU',
+    }),
+    sel('band_type', 'Band Type', ['Grommed', 'Grommed with Aluminium Patti', 'Lower', 'Upper'], {
+      showIf: (v) => v.product_type === 'Finished' && v.finished_good_type === 'Belt',
+    }),
+    num('belt_length', 'Length', {
+      positive: true,
+      showIf: (v) => v.product_type === 'Finished' && v.finished_good_type === 'Belt',
+    }),
+    num('belt_width', 'Width', {
+      positive: true,
+      showIf: (v) => v.product_type === 'Finished' && v.finished_good_type === 'Belt',
+    }),
+    num('hole', 'Hole', {
+      positive: true,
+      showIf: (v) => v.product_type === 'Finished' && v.finished_good_type === 'Belt',
+    }),
     link('uom', 'UOM', 'UOM', { required: true }),
     link('category', 'Category', 'Category'),
     sel('total_steps', 'BOM Stages (Total steps)', [
@@ -116,23 +138,41 @@ const product = {
   tables: [
     {
       name: 'stage1_items',
-      label: 'BOM · Stage 1 (Insert - Raw materials & Scrap)',
+      label: 'BOM · Stage 1 (Insert / Roll - Raw materials & Scrap)',
       empty: 'Add Stage 1 raw materials and optional scrap/wastage product.',
       fields: bomRow([link('wastage_product', 'Wastage scrap product', 'Product', { filter: (r) => !!r.is_scrap, minWidth: 200 })]),
-      showIf: (v) => steps(v) >= 1,
+      showIf: (v) => steps(v) >= 1 && v.finished_good_type !== 'Belt',
       newRow: () => ({ per_unit_utilization: '' }),
     },
     {
       name: 'stage2_items',
-      label: 'BOM · Stage 2 (Casting - Secondary raw materials)',
-      empty: 'Add Stage 2 raw materials.',
-      fields: bomRow(),
+      label: 'BOM · Stage 2 (Casting / Belt Sizing - Materials & Rolls)',
+      empty: 'Add Stage 2 raw materials or Roll product.',
+      fields: [
+        link('process', 'Process', 'Process'),
+        link('product', 'Material / Roll', 'Product', { filter: (r) => r.product_type === 'Raw' || r.product_type === 'Semi', required: true, minWidth: 220 }),
+        num('per_unit_utilization', 'Per-unit utilization', { positive: true }),
+        num('ratio', 'Ratio', { positive: true }),
+      ],
       showIf: (v) => steps(v) >= 2,
-      newRow: () => ({ per_unit_utilization: '' }),
+      newRow: () => ({ per_unit_utilization: '', ratio: '' }),
+    },
+    {
+      name: 'stage3_items',
+      label: 'BOM · Stage 3 (Belt Finishing - Components)',
+      empty: 'Add Stage 3 component items (e.g. rivets, eyelets).',
+      fields: [
+        link('process', 'Process', 'Process'),
+        link('product', 'Component', 'Product', { filter: raw, required: true, minWidth: 200 }),
+        sel('calculation_type', 'Calculation Type', ['Quantity', 'Hole'], { default: () => 'Quantity' }),
+        num('ratio', 'Ratio', { positive: true, required: true }),
+      ],
+      showIf: (v) => steps(v) >= 3 && v.finished_good_type === 'Belt',
+      newRow: () => ({ calculation_type: 'Quantity', ratio: '' }),
     },
     {
       name: 'stage3_charges',
-      label: 'BOM · Stage 3 (CNC / Charge - Overhead & Charges)',
+      label: 'BOM · Stage 3 (CNC / Finishing - Overhead & Charges)',
       empty: 'Add Stage 3 charges (e.g. Labour, Electricity, Finishing).',
       fields: [
         link('charge', 'Charge', 'Charge', { required: true, minWidth: 200 }),
@@ -148,9 +188,11 @@ const product = {
     if (v.product_type && v.product_type !== 'Raw') {
       const numSteps = Number(v.total_steps) || 3;
       if (![1, 2, 3].includes(numSteps)) e.total_steps = 'Select 1, 2 or 3 stages';
-      if (numSteps >= 1 && !v.stage1_items?.length) e.stage1_items = 'Add Stage 1 BOM rows';
+      const isBelt = v.product_type === 'Finished' && v.finished_good_type === 'Belt';
+      if (!isBelt && numSteps >= 1 && !v.stage1_items?.length) e.stage1_items = 'Add Stage 1 BOM rows';
       if (numSteps >= 2 && !v.stage2_items?.length) e.stage2_items = 'Add Stage 2 BOM rows';
-      if (numSteps >= 3 && !v.stage3_charges?.length) e.stage3_charges = 'Add Stage 3 charges';
+      if (!isBelt && numSteps >= 3 && !v.stage3_charges?.length) e.stage3_charges = 'Add Stage 3 charges';
+      if (isBelt && numSteps >= 3 && !v.stage3_items?.length && !v.stage3_charges?.length) e.stage3_items = 'Add Stage 3 components or charges';
     }
     return e;
   },
@@ -376,8 +418,14 @@ const purchase = {
 
 // ---- Stage batches (Insert, Casting, CNC / Charge) -------------------------
 const stageRows = (stage) => async (v) => {
-  const r = await call('clssurya.api.get_stage_rows', { product: v.product, qty: v.quantity, stage });
-  return { top: { wastage_product: r.wastage_product || '' }, tables: { items: r.items, ...(stage === 3 ? { charges: r.charges } : {}) } };
+  const r = await call('clssurya.api.get_stage_rows', { product: v.product, qty: v.quantity, stage, size: v.size });
+  return {
+    top: {
+      wastage_product: r.wastage_product || '',
+      ...(stage === 2 && !v.size && r.default_size ? { size: r.default_size } : {}),
+    },
+    tables: { items: r.items, ...(stage === 3 ? { charges: r.charges } : {}) },
+  };
 };
 const itemFields = [
   link('process', 'Process', 'Process', { readOnly: true }), link('product', 'Product', 'Product', { readOnly: true, minWidth: 200 }),
@@ -386,8 +434,8 @@ const itemFields = [
   cur('extra_cost', 'Extra cost / pc'),
 ];
 
-const STAGE_TITLES = { 1: 'Stage 1 (Insert Making) batch', 2: 'Stage 2 (PU & Casting) batch', 3: 'Stage 3 (CNC) batch' };
-const STAGE_PLURALS = { 1: 'Stage 1 (Insert Making) batches', 2: 'Stage 2 (PU & Casting) batches', 3: 'Stage 3 (CNC) batches' };
+const STAGE_TITLES = { 1: 'Stage 1 (Insert / Roll Creation) batch', 2: 'Stage 2 (PU Casting / Belt Sizing) batch', 3: 'Stage 3 (CNC / Belt Finishing) batch' };
+const STAGE_PLURALS = { 1: 'Stage 1 (Insert / Roll Creation) batches', 2: 'Stage 2 (PU Casting / Belt Sizing) batches', 3: 'Stage 3 (CNC / Belt Finishing) batches' };
 
 const stageConfig = (stage) => ({
   doctype: `Stage ${stage} Batch`,
@@ -396,11 +444,17 @@ const stageConfig = (stage) => ({
   completable: true,
   summaryTitle: 'Live cost',
   fields: [
-    link('product', stage === 3 ? 'Finished product' : 'Product to produce', 'Product', { required: true, minWidth: 240, filter: (r) => r.product_type !== 'Raw' && Number(r.total_steps) >= stage }),
+    link('product', stage === 3 ? 'Finished product' : 'Product to produce', 'Product', {
+      required: true,
+      minWidth: 240,
+      filter: (r) => r.product_type !== 'Raw' && Number(r.total_steps) >= stage && !(stage === 1 && r.product_type === 'Finished' && r.finished_good_type === 'Belt'),
+    }),
     //t('production_code', 'Production Code'),
-    num('quantity', 'Quantity produced', { positive: true }), date('posting_date', 'Date'),
+    num('quantity', 'Quantity produced', { positive: true }),
+    ...(stage === 2 ? [num('size', 'Size', { positive: true })] : []),
+    date('posting_date', 'Date'),
     //t('operator', 'Operator / Worker'),
-    //link('process', 'Process / Operation', 'Process'),
+    //link('operation', 'Process / Operation', 'Process'),
     ...(stage === 3 ? [link('machine', 'CNC Machine', 'CNC Machine')] : []),
     ...(stage === 1 ? [num('weight_per_piece', 'Weight per piece', { positive: true }), ro(num('wastage_qty', 'Wastage (to scrap)', { dp: 4 }))] : []),
     ...(stage === 3 ? [num('tooling_percent', 'Tooling cost %', { max: 100 }), ro(cur('tooling_base', 'Tooling base (carried + ticked charges)', { minWidth: 220 }))] : []),
@@ -412,14 +466,14 @@ const stageConfig = (stage) => ({
     //ro(t('status', 'Status')),
   ],
   tables: [
-    { name: 'items', label: stage === 1 ? 'Insert Making raw materials' : stage === 2 ? 'PU & Casting consumption (carried-in + raw)' : 'Carried-in PU & Casting stock', fields: itemFields, noAdd: true },
+    { name: 'items', label: stage === 1 ? 'Insert / Roll raw materials' : stage === 2 ? 'Consumption (Roll / carried-in + raw)' : 'Carried-in stock & component items', fields: itemFields, noAdd: true },
     ...(stage === 3 ? [{ name: 'charges', label: 'Charges', noAdd: true, fields: [link('charge', 'Charge', 'Charge', { readOnly: true }), cur('per_unit_price', 'Per unit'), { name: 'in_tooling_base', label: 'In tooling base', type: 'check' }, ro(cur('amount', 'Amount'))] }] : []),
   ],
 
   // one calculation, shared with the tests (extra cost, tooling and rejection are all inside stageCalc)
   compute: (v) => stageCalc(stage, v),
 
-  loadKey: (v) => (v.product && Number(v.quantity) > 0 ? `${v.product}|${v.quantity}` : null),
+  loadKey: (v) => (v.product && Number(v.quantity) > 0 ? (stage === 2 ? `${v.product}|${v.quantity}|${v.size || ''}` : `${v.product}|${v.quantity}`) : null),
   loadRows: stageRows(stage),
   columns: [col('name', 'Batch No'), col('product', 'Product'), col('quantity', 'Quantity', 'number'), col('unit_cost', 'Unit cost', 'currency'), col('batch_total', 'Batch total', 'currency'), status],
   // Validate numeric fields to avoid NaN when saving/completing
@@ -725,7 +779,7 @@ const quotation = {
     {
       key: 'approve',
       label: 'Approve',
-      show: (r) => r.status === 'Draft',
+      show: (r) => ['Draft', 'Sent'].includes(r.status),
       run: async (r) => {
         const result = await runAction('Quotation', r.name, 'approve');
         return result?.result ? `Approved ${r.name}` : `Failed to approve ${r.name}`;
@@ -739,6 +793,16 @@ const quotation = {
         const soResult = await runAction('Quotation', r.name, 'make_sales_order');
         const soName = soResult.result;
         return `Created Sales Order ${soName}`;
+      },
+    },
+    {
+      key: 'reject',
+      label: 'Reject',
+      show: (r) => ['Draft', 'Sent', 'Approved'].includes(r.status),
+      run: async (r) => {
+        if (!window.confirm(`Reject quotation ${r.name}?`)) return 'Rejection cancelled.';
+        await runAction('Quotation', r.name, 'reject');
+        return `Rejected ${r.name}`;
       },
     },
     {
@@ -766,6 +830,8 @@ const quotation = {
 
 };
 
+
+enhanceQuotation(quotation);
 
 // ---- Sales Order: module-level dialog state (shared across actions) ----------
 let _soDialogOpen = false;
@@ -1384,6 +1450,7 @@ const shortageClaim = {
 
 /** Route path -> config. */
 export const RESOURCES = {
+  ...quotationMasters,
   '/uom': uom, '/product': product, '/category': category, '/process': process, '/purchase': purchase,
   '/quotation': quotation, '/sales-order': salesOrder, '/vendor': vendor, '/customer': customer,
   '/charge': charge, '/dispatch': dispatch, '/customer-return': customerReturn, '/goods-receipt': goodsReceipt,

@@ -35,7 +35,7 @@ export default function QuotationVersionBar({ doc }) {
   const canRevise = !!nav && !nav.next && !['Superseded', 'Accepted'].includes(status);
 
   const revise = async () => {
-    if (!window.confirm(`Create a new version from ${name}? This quotation will become Superseded.`)) return;
+    if (!window.confirm(`Create a new version from ${name}? The original version will remain read-only.`)) return;
     setBusy(true);
     setError('');
     try {

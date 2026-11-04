@@ -1,4 +1,4 @@
-import { Autocomplete, Checkbox, FormControlLabel, MenuItem, TextField } from '@mui/material';
+import { Box, Autocomplete, Checkbox, FormControlLabel, MenuItem, TextField } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { Controller } from 'react-hook-form';
@@ -19,18 +19,18 @@ function LinkInput({ f, rf, error, disabled, options, labels, rowPath, setValue,
   const handleChange = (_, v) => {
     const val = v ?? '';
     rf.onChange(val);
-    if (f.onChange && rowPath && setValue && getValues) {
+    if (f.onChange && setValue && getValues) {
       // Build a mutable proxy for the current row so onChange can read/write siblings
-      const row = { ...getValues(rowPath), [f.name]: val };
+      const row = { ...(rowPath ? getValues(rowPath) : getValues()), [f.name]: val };
       const proxy = new Proxy(row, {
         set(target, key, value) {
           target[key] = value;
-          setValue(`${rowPath}.${key}`, value);
+          if (getValues(rowPath ? `${rowPath}.${f.name}` : f.name) === val) setValue(rowPath ? `${rowPath}.${key}` : key, value, { shouldDirty: true });
           return true;
         },
       });
       // onChange may be async; fire-and-forget
-      Promise.resolve(f.onChange(proxy)).catch((e) => console.warn('Field onChange error:', e));
+      Promise.resolve(f.onChange(proxy, { values: getValues() })).catch((e) => console.warn('Field onChange error:', e));
     }
   };
   return (
@@ -61,7 +61,8 @@ function MasterLink({ f, rf, error, disabled, rowPath, setValue, getValues }) {
 function ServerLink({ f, rf, error, disabled, rowPath, setValue, getValues }) {
   const { data = [] } = useQuery({ queryKey: ['list', f.doctype], queryFn: () => getList(f.doctype) });
   const options = useMemo(() => data.filter((r) => !f.filter || f.filter(r)).map((r) => r.name), [data, f]);
-  return <LinkInput {...{ f, rf, error, disabled, options, labels: {}, rowPath, setValue, getValues }} />;
+  const labels = Object.fromEntries(data.map(r => [r.name, f.labelField ? `${r[f.labelField]} · ${[r.customer, r.competitor].filter(Boolean).join(' / ') || r.name}` : r.name]));
+  return <LinkInput {...{ f, rf, error, disabled, options, labels, rowPath, setValue, getValues }} />;
 }
 
 export default function Field({ f, name, control, disabled, rowPath, setValue, getValues }) {
@@ -72,6 +73,7 @@ export default function Field({ f, name, control, disabled, rowPath, setValue, g
       render={({ field: rf, fieldState: { error } }) => {
         const label = f.label + (f.required ? ' *' : '');
         const off = disabled || f.readOnly;
+        if (f.type === 'image') return rf.value && (String(rf.value).startsWith('/files/') || String(rf.value).startsWith('/private/files/')) ? <Box component="img" src={rf.value} alt={f.label} sx={{ width: 64, height: 56, objectFit: 'contain' }} /> : <span>No image</span>;
         if (f.type === 'check')
           return <FormControlLabel label={f.label} control={<Checkbox checked={!!Number(rf.value)} disabled={off} onChange={(e) => rf.onChange(e.target.checked ? 1 : 0)} />} />;
         if (f.type === 'link') return f.master
@@ -84,17 +86,17 @@ export default function Field({ f, name, control, disabled, rowPath, setValue, g
         // Build a row-proxy handler for non-link editable fields (num, currency, text)
         const handleFieldChange = (e) => {
           rf.onChange(e);
-          if (f.onChange && rowPath && setValue && getValues) {
+          if (f.onChange && setValue && getValues) {
             const val = e.target.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value;
-            const row = { ...getValues(rowPath), [f.name]: val };
+            const row = { ...(rowPath ? getValues(rowPath) : getValues()), [f.name]: val };
             const proxy = new Proxy(row, {
               set(target, key, value) {
                 target[key] = value;
-                setValue(`${rowPath}.${key}`, value);
+                setValue(rowPath ? `${rowPath}.${key}` : key, value, { shouldDirty: true });
                 return true;
               },
             });
-            Promise.resolve(f.onChange(proxy)).catch((err) => console.warn('Field onChange error:', err));
+            Promise.resolve(f.onChange(proxy, { values: getValues() })).catch((err) => console.warn('Field onChange error:', err));
           }
         };
         return (
@@ -111,10 +113,10 @@ export default function Field({ f, name, control, disabled, rowPath, setValue, g
             type={['number', 'currency', 'percent'].includes(f.type) ? 'number' : f.type === 'date' ? 'date' : 'text'}
             slotProps={{
               inputLabel: f.type === 'date' ? { shrink: true } : undefined,
-              htmlInput: ['number', 'currency', 'percent'].includes(f.type) ? { step: 'any', min: 0 } : undefined,
+              htmlInput: ['number', 'currency', 'percent'].includes(f.type) ? { step: 'any', min: f.allowNegative ? undefined : 0 } : undefined,
             }}
             sx={{ minWidth: f.minWidth ?? 110 }}
-            onChange={f.onChange && rowPath ? handleFieldChange : rf.onChange}
+            onChange={f.onChange ? handleFieldChange : rf.onChange}
           >
             {f.type === 'select' &&
               f.options.map((o) => {

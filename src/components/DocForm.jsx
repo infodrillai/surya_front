@@ -27,7 +27,7 @@ function applyPatch({ setValue, getValues }, patch) {
 export default function DocForm({ config, doc, open, onClose }) {
   const qc = useQueryClient();
   const notify = useUiStore((s) => s.notify);
-  const { isAdmin, companyState } = useAuthStore();
+  const { isAdmin, companyState, user } = useAuthStore();
   const masters = useMasterMaps();
   const { data: finishedCost = {} } = useFinishedCost(!!config.usesFinishedCost);
   const registry = useRef({});
@@ -40,6 +40,37 @@ export default function DocForm({ config, doc, open, onClose }) {
   const values = useWatch({ control });
   const locked = !!doc?.is_completed || !!config.isLocked?.(doc);
   const isNew = !doc?.name;
+  const quotation = config.doctype === 'Quotation';
+  const draftKey = `surya:quotation-draft:${user}:${doc?.name || 'new'}`;
+  const [draftMessage, setDraftMessage] = useState('');
+  const dirty = useRef(false);
+  const draftSuppressed = useRef(false);
+  dirty.current = form.formState.isDirty;
+
+  const writeRecovery = () => {
+    if (!quotation || !open || locked || !dirty.current || draftSuppressed.current) return;
+    try {
+      localStorage.setItem(draftKey, JSON.stringify({ values: getValues(), modified: doc?.modified, saved: new Date().toISOString() }));
+      setDraftMessage('Recovery draft saved on this device. Use Save as Draft to save it to the server.');
+    } catch { setDraftMessage('Device recovery is unavailable. Use Save as Draft to retain your work.'); }
+  };
+  useEffect(() => {
+    if (!quotation || !open || locked || !form.formState.isDirty) return;
+    const timer = setTimeout(writeRecovery, 2000);
+    return () => clearTimeout(timer);
+  }, [values, open, locked, draftKey, form.formState.isDirty]);
+  useEffect(() => {
+    if (!quotation || !open) return;
+    window.addEventListener('pagehide', writeRecovery);
+    return () => { window.removeEventListener('pagehide', writeRecovery); writeRecovery(); };
+  }, [open, quotation, draftKey, locked]);
+
+  const cancel = () => {
+    if (quotation && !locked && (dirty.current || draftMessage) && !window.confirm('Discard this entry and its device recovery draft? Cancel to continue editing.')) return;
+    draftSuppressed.current = true;
+    if (quotation && !locked) { try { localStorage.removeItem(draftKey); } catch {} }
+    onClose();
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -55,7 +86,18 @@ export default function DocForm({ config, doc, open, onClose }) {
         }
       }
       if (!active) return;
-      const d = buildDefaults(config, initial);
+      let d = buildDefaults(config, initial);
+      setDraftMessage('');
+      draftSuppressed.current = false;
+      if (quotation && !locked) {
+        try {
+          const recovery = JSON.parse(localStorage.getItem(draftKey) || 'null');
+          if (recovery && window.confirm(`Recover your quotation draft saved ${recovery.saved}?${doc?.modified !== recovery.modified ? ' The server document has changed; review before saving.' : ''}`)) {
+            d = buildDefaults(config, { ...initial, ...recovery.values });
+            setDraftMessage('Recovered device draft. Review and save your changes.');
+          }
+        } catch { /* A failed local recovery must not stop the form opening. */ }
+      }
       reset(d);
       loadedKey.current = doc?.name ? config.loadKey?.(d) ?? null : null;
       setTab(0);
@@ -146,9 +188,19 @@ export default function DocForm({ config, doc, open, onClose }) {
     notify(unique.length ? `Please fix: ${unique.join(' · ')}` : 'Fix the highlighted fields first.', 'warning');
   };
   const onSave = handleSubmit(async (vals) => {
-    await save.mutateAsync(vals);
+    await save.mutateAsync(quotation ? { ...vals, status: doc?.status === 'Approved' ? 'Approved' : 'Sent' } : vals);
+    draftSuppressed.current = true;
+    if (quotation) { try { localStorage.removeItem(draftKey); } catch {} }
     await afterChange();
     notify('Saved');
+    onClose();
+  }, invalid);
+  const onSaveDraft = handleSubmit(async (vals) => {
+    await save.mutateAsync({ ...vals, status: 'Draft' });
+    draftSuppressed.current = true;
+    try { localStorage.removeItem(draftKey); } catch {}
+    await afterChange();
+    notify('Draft saved to server');
     onClose();
   }, invalid);
   const onComplete = handleSubmit(async (vals) => {
@@ -192,7 +244,7 @@ export default function DocForm({ config, doc, open, onClose }) {
   };
 
   return (
-    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="lg" scroll="paper">
+    <Dialog open={open} onClose={busy ? undefined : cancel} fullWidth maxWidth="lg" scroll="paper">
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
         {isNew ? `New ${config.title}` : `${config.title} ${doc.name}`}
         {config.completable && !isNew && <Chip size="small" color={doc.is_completed ? 'success' : 'default'} label={doc.is_completed ? 'Completed' : 'Draft'} />}
@@ -202,11 +254,12 @@ export default function DocForm({ config, doc, open, onClose }) {
         <Stack spacing={2.5}>
           {locked && <Alert severity="info">This document is read-only{doc?.is_completed ? ' because it is completed. An Admin can reopen it.' : '.'}</Alert>}
           {banner && <Alert severity={banner.severity}>{banner.text}</Alert>}
+          {quotation && draftMessage && <Alert severity="info">{draftMessage}</Alert>}
           {config.header?.(values, doc)}
           <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' } }}>
             {main.map((f) => (
               <Box key={f.name} sx={{ gridColumn: f.type === 'textarea' ? '1 / -1' : undefined }}>
-                <Field f={{ ...f, readOnly: f.readOnly || (f.readOnlyOnEdit && !isNew) }} name={f.name} control={control} disabled={locked} />
+                <Field f={{ ...f, readOnly: f.readOnly || (f.readOnlyOnEdit && !isNew) }} name={f.name} control={control} disabled={locked} setValue={setValue} getValues={getValues} />
               </Box>
             ))}
           </Box>
@@ -269,7 +322,8 @@ export default function DocForm({ config, doc, open, onClose }) {
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, py: 2 }}>
-        <Button onClick={onClose} disabled={busy}>Close</Button>
+        <Button onClick={cancel} disabled={busy}>{quotation ? 'Cancel' : 'Close'}</Button>
+        {quotation && !locked && doc?.status !== 'Approved' && <Button variant="outlined" onClick={onSaveDraft} disabled={busy}>Save as Draft</Button>}
         {config.completable && !isNew && doc.is_completed && isAdmin && <Button color="warning" onClick={onReopen} disabled={busy}>Reopen</Button>}
         {!locked && <Button variant="outlined" onClick={onSave} disabled={busy}>Save</Button>}
         {!locked && config.completable && <Button variant="contained" onClick={onComplete} disabled={busy}>Save and complete</Button>}

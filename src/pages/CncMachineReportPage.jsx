@@ -120,7 +120,7 @@ export default function CncMachineReportPage() {
     staleTime: 10_000,
   });
 
-  const summary = query.data?.summary || [];
+  const summary = query.data?.summary || query.data?.machine_summary || [];
   const logs = query.data?.logs || [];
 
   // Totals across machines
@@ -164,14 +164,14 @@ export default function CncMachineReportPage() {
       document.body.removeChild(link);
     } else {
       if (!logs.length) return;
-      const headers = ['Date', 'Machine', 'Batch No', 'Product Code', 'Product Name', 'Process', 'Operator', 'Start Time', 'End Time', 'Duration (Mins)', 'Processed Qty', 'Accepted Qty', 'Rejected Qty'];
+      const headers = ['Date', 'Machine', 'Batch No', 'Product Code', 'Product Name', 'Process / Operation', 'Operator', 'Start Time', 'End Time', 'Duration (Mins)', 'Processed Qty', 'Accepted Qty', 'Rejected Qty'];
       const rows = logs.map((l) => [
         l.posting_date,
         `"${l.machine}"`,
         `"${l.production_batch || ''}"`,
         `"${l.product_code || ''}"`,
         `"${(l.product_name || '').replace(/"/g, '""')}"`,
-        `"${l.process || ''}"`,
+        `"${l.operation || l.process || ''}"`,
         `"${l.operator || ''}"`,
         `"${l.start_time || ''}"`,
         `"${l.end_time || ''}"`,
@@ -499,7 +499,7 @@ export default function CncMachineReportPage() {
                       <TableCell sx={{ fontFamily: 'monospace', fontSize: 12, color: palette.teal }}>{l.production_batch || '—'}</TableCell>
                       <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{l.product_code || '—'}</TableCell>
                       <TableCell sx={{ fontWeight: 600 }}>{l.product_name}</TableCell>
-                      <TableCell sx={{ fontSize: 12 }}>{l.process || '—'}</TableCell>
+                      <TableCell sx={{ fontSize: 12 }}>{l.operation || l.process || '—'}</TableCell>
                       <TableCell sx={{ fontSize: 12 }}>{l.operator || '—'}</TableCell>
                       <TableCell sx={{ fontSize: 12 }}>{l.start_time || '—'}</TableCell>
                       <TableCell sx={{ fontSize: 12 }}>{l.end_time || '—'}</TableCell>
