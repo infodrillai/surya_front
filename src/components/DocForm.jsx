@@ -101,6 +101,21 @@ export default function DocForm({ config, doc, open, onClose }) {
       reset(d);
       loadedKey.current = doc?.name ? config.loadKey?.(d) ?? null : null;
       setTab(0);
+
+      // For quotations with saved items: re-fetch product info for any row
+      // where production_cost is 0 (the server may not have stored it).
+      if (active && quotation && config.fixItems && d.items?.length) {
+        try {
+          const fixedItems = await config.fixItems(d.items);
+          if (active && fixedItems) {
+            fixedItems.forEach((row, i) => {
+              Object.entries(row).forEach(([k, v]) => {
+                setValue(`items.${i}.${k}`, v, { shouldDirty: false });
+              });
+            });
+          }
+        } catch (_) { /* fixItems failure must not break the form */ }
+      }
     })();
     return () => {
       active = false;
@@ -139,17 +154,17 @@ export default function DocForm({ config, doc, open, onClose }) {
     mutationFn: async (vals) => {
       const all = cleanPayload(vals);
       const co = config.companion;
-      const main = { ...all };
+      let main = config.beforeSave ? config.beforeSave({ ...all }) : { ...all };
       const extra = {};
       (co?.tables || []).forEach((k) => { extra[k] = main[k] || []; delete main[k]; });
       const saved = isNew ? await insertDoc(config.doctype, main) : await updateDoc(config.doctype, doc.name, main);
-      if (co) await co.save({ ...saved, product_type: all.product_type, total_steps: all.total_steps }, extra);
+      if (co) await co.save({ ...saved, product_type: all.product_type, total_steps: all.total_steps, finished_good_type: all.finished_good_type }, extra);
       return saved;
     },
     onError: (e) => notify(e.message, 'error'),
   });
   const act = useMutation({
-    mutationFn: ({ name, action }) => runAction(config.doctype, name, action),
+    mutationFn: ({ name, action }) => config.runAction ? config.runAction(name, action) : runAction(config.doctype, name, action),
     onError: (e) => notify(e.message, 'error'),
   });
 
@@ -217,7 +232,7 @@ export default function DocForm({ config, doc, open, onClose }) {
     onClose();
   };
 
-  const visible = (f) => !f.showIf || f.showIf(values, { isNew, doc });
+  const visible = (f) => !f.hidden && (!f.showIf || f.showIf(values, { isNew, doc }));
   const main = config.fields.filter((f) => !f.summary && visible(f));
   const summary = config.fields.filter((f) => f.summary);
   const tables = (config.tables || []).filter((t) => !t.showIf || t.showIf(values, { isNew, doc }));
@@ -245,10 +260,13 @@ export default function DocForm({ config, doc, open, onClose }) {
 
   return (
     <Dialog open={open} onClose={busy ? undefined : cancel} fullWidth maxWidth="lg" scroll="paper">
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        {isNew ? `New ${config.title}` : `${config.title} ${doc.name}`}
-        {config.completable && !isNew && <Chip size="small" color={doc.is_completed ? 'success' : 'default'} label={doc.is_completed ? 'Completed' : 'Draft'} />}
-        {doc?.status && <Chip size="small" variant="outlined" label={doc.status} />}
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5, pr: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1 }}>
+          <span>{isNew ? `New ${config.title}` : `${config.title} ${doc.name}`}</span>
+          {config.completable && !isNew && <Chip size="small" color={doc.is_completed ? 'success' : 'default'} label={doc.is_completed ? 'Completed' : 'Draft'} />}
+          {(() => { const s = config.getEffectiveStatus ? config.getEffectiveStatus(doc) : doc?.status; return s ? <Chip size="small" variant="outlined" color={s === "Disapproved" || s === "Rejected" ? "error" : "default"} label={s} /> : null; })()}
+        </Box>
+        {config.titleActions?.(values, doc)}
       </DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2.5}>

@@ -13,6 +13,8 @@ import StraightenIcon from '@mui/icons-material/StraightenOutlined';
 import TuneIcon from '@mui/icons-material/TuneOutlined';
 import WarehouseIcon from '@mui/icons-material/WarehouseOutlined';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import LayersIcon from '@mui/icons-material/LayersOutlined';
+import AssessmentIcon from '@mui/icons-material/AssessmentOutlined';
 
 const STORE = 'CS Store', PROD = 'CS Production', SALES = 'CS Sales';
 
@@ -29,9 +31,15 @@ export const MENU = [
             { label: 'Category', path: '/category', icon: CategoryIcon },
             { label: 'Process', path: '/process', icon: TuneIcon, roles: [STORE, PROD] },
             { label: 'Purchase', path: '/purchase', icon: ShoppingCartIcon, roles: [STORE] },
-            { label: 'Batch', path: '/batch', icon: FactoryIcon, roles: [PROD] },
             { label: 'Quotation', path: '/quotation', icon: RequestQuoteIcon, roles: [SALES] },
             { label: 'Sales Order', path: '/sales-order', icon: ReceiptIcon, roles: [SALES, STORE] },
+        ],
+    },
+    {
+        section: 'Production',
+        items: [
+            { label: 'PU Batch', path: '/batch', icon: FactoryIcon, roles: [PROD] },
+            { label: 'Belt Batch', path: '/belt-batch', icon: LayersIcon, roles: [PROD] },
         ],
     },
     {
@@ -49,11 +57,11 @@ export const MENU = [
     },
     {
         section: 'Report',
-        items:[
+        items: [
             { label: 'Pending Order Analysis', path: '/pending-order-analysis', icon: ReceiptIcon, roles: [STORE, PROD] },
-            { label: 'Monthly Production Report', path: '/monthly-production-report', icon: CalendarMonthIcon, roles: [STORE ,PROD] },
-            { label: 'Machine-wise Production & Time-Tracking', path: '/machine-time-report', icon: CalendarMonthIcon, roles: [STORE ,PROD] },
+            { label: 'Monthly Production Report', path: '/monthly-production-report', icon: CalendarMonthIcon, roles: [STORE, PROD] },
+            { label: 'Machine-wise Production & Time-Tracking', path: '/machine-time-report', icon: CalendarMonthIcon, roles: [STORE, PROD] },
+            { label: 'Belt Production Reports', path: '/belt-production-report', icon: AssessmentIcon, roles: [STORE, PROD] },
         ]
     }
 ];
-

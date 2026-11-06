@@ -19,10 +19,14 @@ function syncToFrappeWww() {
       const src = path.join(appDir, 'public/surya/index.html');
       const wwwDir = path.join(appDir, 'www');
       const dest = path.join(wwwDir, 'surya.html');
-      if (fs.existsSync(src)) {
-        fs.mkdirSync(wwwDir, { recursive: true });
-        fs.copyFileSync(src, dest);
-        console.log(`[vite] Synced index.html to ${dest}`);
+      try {
+        if (fs.existsSync(src)) {
+          fs.mkdirSync(wwwDir, { recursive: true });
+          fs.copyFileSync(src, dest);
+          console.log(`[vite] Synced index.html to ${dest}`);
+        }
+      } catch (err) {
+        console.warn(`[vite] Sync to frappe www skipped or failed: ${err.message}`);
       }
     },
   };

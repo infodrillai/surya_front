@@ -1,4 +1,4 @@
-import { Box, Autocomplete, Checkbox, FormControlLabel, MenuItem, TextField } from '@mui/material';
+import { Box, Autocomplete, Checkbox, FormControlLabel, MenuItem, TextField, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { Controller } from 'react-hook-form';
@@ -14,6 +14,18 @@ export const labelOf = (master, r) => {
   }
   return r.name;
 };
+
+const ZERO_BLANK_FIELDS = [
+  'belt_length',
+  'length',
+  'belt_width',
+  'width',
+  'hole',
+  'holes',
+  'max_purchase_qty',
+  'low_stock_limit',
+  'high_stock_limit',
+];
 
 function LinkInput({ f, rf, error, disabled, options, labels, rowPath, setValue, getValues }) {
   const handleChange = (_, v) => {
@@ -73,7 +85,23 @@ export default function Field({ f, name, control, disabled, rowPath, setValue, g
       render={({ field: rf, fieldState: { error } }) => {
         const label = f.label + (f.required ? ' *' : '');
         const off = disabled || f.readOnly;
-        if (f.type === 'image') return rf.value && (String(rf.value).startsWith('/files/') || String(rf.value).startsWith('/private/files/')) ? <Box component="img" src={rf.value} alt={f.label} sx={{ width: 64, height: 56, objectFit: 'contain' }} /> : <span>No image</span>;
+        if (f.type === 'image') {
+          const val = String(rf.value || '').trim();
+          const hasImg = val && (val.startsWith('/files/') || val.startsWith('/private/files/') || val.startsWith('files/') || val.startsWith('http://') || val.startsWith('https://') || val.startsWith('data:image/'));
+          return hasImg ? (
+            <Box
+              component="img"
+              src={val}
+              alt={f.label}
+              sx={{ width: 44, height: 44, objectFit: 'contain', borderRadius: 1, border: '1px solid #e0e0e0', bgcolor: '#fafafa' }}
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          ) : (
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11, fontStyle: 'italic' }}>
+              No img
+            </Typography>
+          );
+        }
         if (f.type === 'check')
           return <FormControlLabel label={f.label} control={<Checkbox checked={!!Number(rf.value)} disabled={off} onChange={(e) => rf.onChange(e.target.checked ? 1 : 0)} />} />;
         if (f.type === 'link') return f.master
@@ -83,12 +111,23 @@ export default function Field({ f, name, control, disabled, rowPath, setValue, g
           const num = ['number', 'currency', 'percent'].includes(f.type);
           return <TextField label={f.label} value={num ? fmtNum(rf.value, f.dp ?? (f.type === 'currency' ? 2 : 3)) : rf.value ?? ''} disabled sx={{ minWidth: f.minWidth ?? 110 }} />;
         }
+
+        const isNum = ['number', 'currency', 'percent'].includes(f.type);
+        const shouldBlankZero = ZERO_BLANK_FIELDS.includes(f.name);
+        const displayVal = shouldBlankZero && (rf.value === 0 || rf.value === '0') ? '' : (rf.value ?? '');
+
         // Build a row-proxy handler for non-link editable fields (num, currency, text)
         const handleFieldChange = (e) => {
+          let val = e.target.value;
+          // Strip leading 0 when typing a number (e.g. typing 5 over 0 becomes '5' instead of '05')
+          if (isNum && typeof val === 'string' && /^0+[1-9]/.test(val)) {
+            val = val.replace(/^0+/, '');
+            e.target.value = val;
+          }
           rf.onChange(e);
           if (f.onChange && setValue && getValues) {
-            const val = e.target.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value;
-            const row = { ...(rowPath ? getValues(rowPath) : getValues()), [f.name]: val };
+            const parsedVal = isNum ? (val === '' ? '' : Number(val)) : val;
+            const row = { ...(rowPath ? getValues(rowPath) : getValues()), [f.name]: parsedVal };
             const proxy = new Proxy(row, {
               set(target, key, value) {
                 target[key] = value;
@@ -99,10 +138,17 @@ export default function Field({ f, name, control, disabled, rowPath, setValue, g
             Promise.resolve(f.onChange(proxy, { values: getValues() })).catch((err) => console.warn('Field onChange error:', err));
           }
         };
+
+        const handleFocusOrClick = (e) => {
+          if (isNum && (e.target.value === '0' || Number(e.target.value) === 0)) {
+            e.target.select();
+          }
+        };
+
         return (
           <TextField
             {...rf}
-            value={rf.value ?? ''}
+            value={displayVal}
             label={label}
             disabled={off}
             error={!!error}
@@ -110,13 +156,15 @@ export default function Field({ f, name, control, disabled, rowPath, setValue, g
             select={f.type === 'select'}
             multiline={f.type === 'textarea'}
             minRows={f.type === 'textarea' ? 2 : undefined}
-            type={['number', 'currency', 'percent'].includes(f.type) ? 'number' : f.type === 'date' ? 'date' : 'text'}
+            type={isNum ? 'number' : f.type === 'date' ? 'date' : 'text'}
             slotProps={{
               inputLabel: f.type === 'date' ? { shrink: true } : undefined,
-              htmlInput: ['number', 'currency', 'percent'].includes(f.type) ? { step: 'any', min: f.allowNegative ? undefined : 0 } : undefined,
+              htmlInput: isNum ? { step: 'any', min: f.allowNegative ? undefined : 0 } : undefined,
             }}
             sx={{ minWidth: f.minWidth ?? 110 }}
-            onChange={f.onChange ? handleFieldChange : rf.onChange}
+            onChange={handleFieldChange}
+            onFocus={handleFocusOrClick}
+            onClick={handleFocusOrClick}
           >
             {f.type === 'select' &&
               f.options.map((o) => {

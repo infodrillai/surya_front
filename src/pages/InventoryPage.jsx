@@ -75,9 +75,9 @@ const STAGE_THEMES = {
     border: '#c7d2fe',
     badgeBg: '#e0e7ff',
     badgeText: '#4338ca',
-    label: 'Stage 1 (Insert Making)',
+    label: 'Stage 1',
     Icon: PrecisionManufacturingOutlined,
-    description: 'Semi-finished stock processed through Stage 1.',
+    description: 'PU: Insert Making  ·  Belt: Roll Creation',
   },
   'Stage 2': {
     color: '#8b5cf6',
@@ -85,9 +85,9 @@ const STAGE_THEMES = {
     border: '#ddd6fe',
     badgeBg: '#ede9fe',
     badgeText: '#6d28d9',
-    label: 'Stage 2 (PU & Casting)',
+    label: 'Stage 2',
     Icon: TuneOutlined,
-    description: 'Intermediary semi-finished stock ready for final stage.',
+    description: 'PU: PU & Casting  ·  Belt: Roll Sizing',
   },
   'Stage 3': {
     color: '#d97706',
@@ -95,9 +95,19 @@ const STAGE_THEMES = {
     border: '#fde68a',
     badgeBg: '#fef3c7',
     badgeText: '#b45309',
-    label: 'Stage 3 (CNC)',
+    label: 'Stage 3',
     Icon: ElectricBoltOutlined,
-    description: 'CNC stock waiting to be moved to Finished Goods.',
+    description: 'PU: CNC  ·  Belt: Roll Finished',
+  },
+  'Stage 4': {
+    color: '#ea580c',
+    bg: '#fff7ed',
+    border: '#fed7aa',
+    badgeBg: '#ffedd5',
+    badgeText: '#c2410c',
+    label: 'Stage 4 (Charges)',
+    Icon: AccountBalanceWalletOutlined,
+    description: 'Belt: Charges stage — ready to move to Finished Goods.',
   },
   Finished: {
     color: '#059669',
@@ -124,6 +134,43 @@ const DEFAULT_STAGE_THEME = {
 
 function getStageTheme(stage) {
   return STAGE_THEMES[stage] || DEFAULT_STAGE_THEME;
+}
+
+/**
+ * Returns the correct human-readable stage label for a specific inventory item,
+ * taking into account whether the product is a Belt or PU product.
+ *
+ * PU:   Stage 1 = Insert Making · Stage 2 = PU & Casting · Stage 3 = CNC
+ * Belt: Stage 1 = Roll Creation · Stage 2 = Roll Sizing  · Stage 3 = Roll Finished · Stage 4 = Charges
+ */
+export function getItemStageLabel(item) {
+  if (!item) return '';
+  const isBelt =
+    item.finished_good_type === 'Belt' ||
+    (item.product_type === 'Finished' && item.finished_good_type === 'Belt');
+  const stage = item.stage;
+
+  if (isBelt) {
+    const BELT_LABELS = {
+      'Stage 1': 'Stage 1 · Roll Creation',
+      'Stage 2': 'Stage 2 · Roll Sizing',
+      'Stage 3': 'Stage 3 · Roll Finished',
+      'Stage 4': 'Stage 4 · Charges',
+      Raw: 'Raw Material',
+      Finished: 'Finished Goods',
+    };
+    return BELT_LABELS[stage] || stage || '';
+  }
+
+  // PU / default
+  const PU_LABELS = {
+    'Stage 1': 'Stage 1 · Insert Making',
+    'Stage 2': 'Stage 2 · PU & Casting',
+    'Stage 3': 'Stage 3 · CNC',
+    Raw: 'Raw Material',
+    Finished: 'Finished Goods',
+  };
+  return PU_LABELS[stage] || STAGE_THEMES[stage]?.label || stage || '';
 }
 
 // Multi-color Stacked Bar for Charge Bifurcation
@@ -285,6 +332,7 @@ function StatCard({ label, value, subtitle, icon: Icon, iconBg, iconColor, alert
 function InventoryCard({ item, onSelect }) {
   const stageTheme = getStageTheme(item.stage);
   const StageIcon = stageTheme.Icon;
+  const stageLabel = getItemStageLabel(item);
 
   // Stock health status
   const isOutOfStock = Number(item.stock) <= 0;
@@ -328,7 +376,7 @@ function InventoryCard({ item, onSelect }) {
           <Chip
             size="small"
             icon={<StageIcon sx={{ fontSize: '14px !important', color: `${stageTheme.badgeText} !important` }} />}
-            label={stageTheme.label || item.stage}
+            label={stageLabel}
             sx={{
               bgcolor: stageTheme.badgeBg,
               color: stageTheme.badgeText,
@@ -579,7 +627,7 @@ function DetailDialog({ item, open, onClose, onOpenMoveDialog, getEffectiveAvail
   const { data: batchRecords = [], isLoading: isBatchLoading } = useQuery({
     queryKey: ['datewise_production_item', productKey, item?.stage],
     queryFn: async () => {
-      const stageParam = ['Stage 1', 'Stage 2', 'Stage 3'].includes(item?.stage) ? item?.stage : undefined;
+      const stageParam = ['Stage 1', 'Stage 2', 'Stage 3', 'Stage 4'].includes(item?.stage) ? item?.stage : undefined;
       const res = await call('clssurya.api.get_datewise_production_inventory', {
         product: productKey,
         stage: stageParam,
@@ -766,7 +814,8 @@ function DetailDialog({ item, open, onClose, onOpenMoveDialog, getEffectiveAvail
                     batchRecords.map((r) => {
                       const isProductFinished = item?.stage === 'Finished' || item?.stage === 'Finished Goods';
                       const isRowFinished = r.stage === 'Finished' || r.stage === 'Finished Goods' || r.stage_label === 'Finished Goods';
-                      const isStage3 = (r.stage === 'Stage 3' || r.stage?.includes('3')) && !isRowFinished;
+                      // PU: Stage 3 (CNC) moves to Finished · Belt: Stage 3 (Roll Finished) or Stage 4 (Charges) moves to Finished
+                      const isStage3 = (r.stage === 'Stage 3' || r.stage === 'Stage 4' || r.stage?.includes('3') || r.stage?.includes('4')) && !isRowFinished;
                       const effectiveAvail = getEffectiveAvailableQty ? getEffectiveAvailableQty(r) : Number(r.available_qty || r.produced_qty || 0);
 
                       return (
@@ -1296,7 +1345,10 @@ export default function InventoryPage() {
         const targetProduct = moveTarget.product || moveTarget.product_code;
         let fgFound = false;
         const updated = old.map((inv) => {
-          if (inv.product === targetProduct && (inv.stage === 'Stage 3' || toInternalStage(inv.stage) === 'Stage 3')) {
+          if (inv.product === targetProduct && (
+            inv.stage === 'Stage 3' || toInternalStage(inv.stage) === 'Stage 3' ||
+            inv.stage === 'Stage 4' || toInternalStage(inv.stage) === 'Stage 4'
+          )) {
             return { ...inv, stock: Math.max(0, (Number(inv.stock) || 0) - qty) };
           }
           if (inv.product === targetProduct && (inv.stage === 'Finished' || toInternalStage(inv.stage) === 'Finished')) {
@@ -1450,6 +1502,16 @@ export default function InventoryPage() {
     staleTime: 60 * 1000,
   });
 
+  // Belt Batch — all stages (1=Roll Creation, 2=Roll Sizing, 3=Roll Finished, 4=Charges)
+  const { data: beltBatches = [] } = useQuery({
+    queryKey: ['list', 'Belt Batch'],
+    queryFn: () => getList('Belt Batch', {
+      fields: ['name', 'product', 'stage', 'process_step', 'unit_cost', 'batch_total', 'quantity', 'is_completed', 'modified'],
+      orderBy: 'modified desc',
+    }).catch(() => []),
+    staleTime: 60 * 1000,
+  });
+
   // Query all production batches across stages for valuation tracking
   const { data: allDatewiseBatches = [] } = useQuery({
     queryKey: ['all_datewise_production_inventory'],
@@ -1564,8 +1626,15 @@ export default function InventoryPage() {
       } else if (internal === 'Stage 3') {
         stageVariants.add('Stage 3');
         stageVariants.add('Stage 3 (CNC)');
+        stageVariants.add('Stage 3 (CNC / Roll Finished)');
+        stageVariants.add('Stage 3 (Roll Finished)');
         stageVariants.add('CNC');
         stageVariants.add('CNC / Charge');
+        stageVariants.add('Roll Finished');
+      } else if (internal === 'Stage 4') {
+        stageVariants.add('Stage 4');
+        stageVariants.add('Stage 4 (Charges)');
+        stageVariants.add('Charges');
       } else if (internal === 'Finished') {
         stageVariants.add('Finished');
         stageVariants.add('Finished Goods');
@@ -1609,6 +1678,14 @@ export default function InventoryPage() {
     (stage2Batches || []).forEach((b) => processBatch(b, 'Stage 2'));
     (stage3Batches || []).forEach((b) => processBatch(b, 'Stage 3'));
 
+    // Belt Batch: map process_step / stage field to inventory stage name
+    (beltBatches || []).forEach((b) => {
+      const beltStageNum = Number(b.stage || b.process_step) || 1;
+      const beltStageMap = { 1: 'Stage 1', 2: 'Stage 2', 3: 'Stage 3', 4: 'Stage 4' };
+      const stageName = beltStageMap[beltStageNum] || 'Stage 1';
+      processBatch(b, stageName);
+    });
+
     (allDatewiseBatches || []).forEach((r) => {
       const stageName =
         r.stage ||
@@ -1623,7 +1700,7 @@ export default function InventoryPage() {
     });
 
     return map;
-  }, [stage1Batches, stage2Batches, stage3Batches, allDatewiseBatches, productMap]);
+  }, [stage1Batches, stage2Batches, stage3Batches, beltBatches, allDatewiseBatches, productMap]);
 
   // Enriched inventory items with live batch valuation for Stage 1, Stage 2, and Stage 3
   const enrichedItems = useMemo(() => {
@@ -1719,6 +1796,7 @@ export default function InventoryPage() {
         product_code: p?.product_code || item.product,
         production_code,
         product_type: p?.product_type || '',
+        finished_good_type: p?.finished_good_type || '',
         uom: p?.uom || '',
         category: p?.category || '',
         low_stock_limit: Number(p?.low_stock_limit) || 0,
@@ -1782,6 +1860,7 @@ export default function InventoryPage() {
       'Stage 1': 0,
       'Stage 2': 0,
       'Stage 3': 0,
+      'Stage 4': 0,
       Finished: 0,
     };
 
@@ -1852,7 +1931,7 @@ export default function InventoryPage() {
     return items;
   }, [enrichedItems, search, stageFilter, categoryFilter, statusFilter, sortBy]);
 
-  const stages = ['All', 'Raw', 'Stage 1', 'Stage 2', 'Stage 3', 'Finished'];
+  const stages = ['All', 'Raw', 'Stage 1', 'Stage 2', 'Stage 3', 'Stage 4', 'Finished'];
 
   return (
     <Box sx={{ pb: 6 }}>
@@ -2233,6 +2312,18 @@ export default function InventoryPage() {
             {stages.map((stg) => {
               const active = stageFilter === stg;
               const count = stats.stageCounts[stg] || 0;
+
+              // Show both PU and Belt meanings in the filter chip label
+              const FILTER_LABELS = {
+                All: 'All Stages',
+                Raw: 'Raw Material',
+                'Stage 1': 'Stage 1 (Insert Making / Roll Creation)',
+                'Stage 2': 'Stage 2 (PU Casting / Roll Sizing)',
+                'Stage 3': 'Stage 3 (CNC / Roll Finished)',
+                'Stage 4': 'Stage 4 (Belt Charges)',
+                Finished: 'Finished Goods',
+              };
+              const filterLabel = FILTER_LABELS[stg] || stg;
               const theme = getStageTheme(stg);
 
               return (
@@ -2240,7 +2331,7 @@ export default function InventoryPage() {
                   key={stg}
                   label={
                     <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-                      <span>{stg === 'All' ? 'All Stages' : (STAGE_THEMES[stg]?.label || stg)}</span>
+                      <span>{filterLabel}</span>
                       <Box
                         component="span"
                         sx={{
@@ -2384,6 +2475,7 @@ export default function InventoryPage() {
               <TableBody>
                 {displayItems.map((item) => {
                   const stageTheme = getStageTheme(item.stage);
+                  const stageLabel = getItemStageLabel(item);
                   const isLow = item.low_stock_limit > 0 && item.stock <= item.low_stock_limit;
 
                   return (
@@ -2417,7 +2509,7 @@ export default function InventoryPage() {
                       <TableCell>
                         <Chip
                           size="small"
-                          label={stageTheme.label || item.stage}
+                          label={stageLabel}
                           sx={{
                             bgcolor: stageTheme.badgeBg,
                             color: stageTheme.badgeText,
@@ -2488,7 +2580,7 @@ export default function InventoryPage() {
                           >
                             View
                           </Button>
-                          {item.stage === 'Stage 3' && (
+                          {(item.stage === 'Stage 3' || item.stage === 'Stage 4') && (
                             <Button
                               size="small"
                               variant="contained"
@@ -2570,16 +2662,24 @@ export default function InventoryPage() {
               placeholder="Batch no..."
               sx={{ width: { xs: '100%', sm: 140 }, '& .MuiOutlinedInput-root': { borderRadius: '10px' } }}
             />
-            <FormControl size="small" sx={{ minWidth: 170 }}>
+            <FormControl size="small" sx={{ minWidth: 200 }}>
               <Select
                 value={datewiseStage}
                 onChange={(e) => setDatewiseStage(e.target.value)}
                 sx={{ borderRadius: '10px' }}
               >
                 <MenuItem value="All">All Stages</MenuItem>
-                <MenuItem value="Stage 1">Stage 1 (Insert Making)</MenuItem>
-                <MenuItem value="Stage 2">Stage 2 (PU & Casting)</MenuItem>
-                <MenuItem value="Stage 3">Stage 3 (CNC)</MenuItem>
+                <MenuItem disabled sx={{ fontSize: 11, color: 'text.secondary', py: 0.25 }}>── PU Product ──</MenuItem>
+                <MenuItem value="Stage 1">Stage 1 · Insert Making</MenuItem>
+                <MenuItem value="Stage 2">Stage 2 · PU &amp; Casting</MenuItem>
+                <MenuItem value="Stage 3">Stage 3 · CNC</MenuItem>
+                <MenuItem disabled sx={{ fontSize: 11, color: 'text.secondary', py: 0.25 }}>── Belt Product ──</MenuItem>
+                <MenuItem value="Stage 1">Stage 1 · Roll Creation</MenuItem>
+                <MenuItem value="Stage 2">Stage 2 · Roll Sizing</MenuItem>
+                <MenuItem value="Stage 3">Stage 3 · Roll Finished</MenuItem>
+                <MenuItem value="Stage 4">Stage 4 · Charges</MenuItem> 
+                <MenuItem disabled sx={{ fontSize: 11, color: 'text.secondary', py: 0.25 }}>──────────────</MenuItem>
+                <MenuItem value="Finished">Finished Goods</MenuItem>
               </Select>
             </FormControl>
             <IconButton onClick={() => refetchDatewise()} sx={{ borderRadius: '10px', border: '1px solid #dde5e3' }}>
@@ -2620,7 +2720,8 @@ export default function InventoryPage() {
                 ) : (
                   datewiseRecords.map((r) => {
                     const isFinished = r.stage === 'Finished' || r.stage === 'Finished Goods' || r.stage_label === 'Finished Goods';
-                    const isStage3 = (r.stage === 'Stage 3' || r.stage?.includes('3')) && !isFinished;
+                    // PU: Stage 3 (CNC) · Belt: Stage 3 (Roll Finished) or Stage 4 (Charges)
+                    const isStage3 = (r.stage === 'Stage 3' || r.stage === 'Stage 4' || r.stage?.includes('3') || r.stage?.includes('4')) && !isFinished;
                     const effectiveAvail = isFinished ? Number(r.available_qty || r.produced_qty || 0) : getEffectiveAvailableQty(r);
 
                     return (

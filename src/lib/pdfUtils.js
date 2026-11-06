@@ -117,9 +117,13 @@ export async function generateQuotationPDF(rawDoc) {
     return raw;
   };
 
+  const currency = qDoc.currency || 'INR';
+  const currencySymbol = currency === 'INR' ? '₹' : currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : `${currency} `;
+
   const formatCurrency = (val) => {
     const num = Number(val || 0);
-    return '₹' + Math.round(num).toLocaleString('en-IN');
+    const formatted = Math.round(num).toLocaleString(currency === 'INR' ? 'en-IN' : 'en-US');
+    return `${currencySymbol}${formatted}`;
   };
 
   const qName = qDoc.name || 'QTN-DRAFT';
@@ -127,21 +131,39 @@ export async function generateQuotationPDF(rawDoc) {
   const qDate = qDoc.quotation_date ? fmtDate(qDoc.quotation_date) : new Date().toLocaleDateString('en-IN');
   const status = qDoc.status || 'Draft';
   const version = qDoc.version ? `v${qDoc.version}` : '';
+  const validityDays = Number(qDoc.validity_days) > 0 ? Number(qDoc.validity_days) : 15;
+  const validUntil = qDoc.valid_until ? fmtDate(qDoc.valid_until) : '';
+  const createdBy = qDoc.created_by_name || qDoc.owner || '';
 
   const items = qDoc.items || [];
   let totalUnits = 0;
   let subtotalCalc = 0;
+  const discountedItemCount = items.filter(item => Number(item.item_discount_percent) > 0).length;
+  const showDiscountCol = discountedItemCount > 1;
+
+  const prodImageMap = {};
+  allProducts.forEach((p) => {
+    const img = (p.image || '').trim();
+    if (img) {
+      if (p.name) prodImageMap[p.name] = img;
+      if (p.product_code) prodImageMap[p.product_code] = img;
+    }
+  });
 
   const itemRowsHtml = items
     .map((item, idx) => {
       const displayName = getDisplayName(item);
-      const showCode = item.product && item.product !== displayName;
       const desc = getItemDescription(item);
       const qty = Number(item.quantity || 0);
       const rate = Number(item.rate || 0);
-
-      const amount = Number(item.amount || qty * rate);
+      const itemDiscountPct = Number(item.item_discount_percent || 0);
+      const grossAmount = Number(item.gross_amount || qty * rate);
+      const itemDiscountAmt = Number(item.item_discount_amount || (grossAmount * itemDiscountPct / 100));
+      const amount = Number(item.amount || grossAmount - itemDiscountAmt);
       const uom = item.uom || 'PCS';
+      const externalCode = item.external_code || '';
+      const suryaCode = item.product || '';
+      const productImage = item.image || (suryaCode ? prodImageMap[suryaCode] : '') || '';
 
       totalUnits += qty;
       subtotalCalc += amount;
@@ -152,9 +174,16 @@ export async function generateQuotationPDF(rawDoc) {
         ${idx + 1}
       </td>
       <td style="padding: 7px 8px; color: #000000;">
-        <div style="font-weight: 700; font-size: 11.5px; color: #000000;">${displayName}</div>
-        ${desc ? `<div style="font-size: 9.5px; color: #4b5563; font-style: italic; margin-top: 2px;">${desc.replace(/\n/g, '<br/>')}</div>` : ''}
-        // ${showCode ? `<div style="font-size: 9px; color: #4b5563; margin-top: 1px;">Item Code: ${item.product}</div>` : ''}
+        <div style="display: flex; align-items: flex-start; gap: 8px;">
+          ${productImage ? `<img src="${productImage}" style="width: 36px; height: 36px; object-fit: contain; border: 1px solid #e5e7eb; border-radius: 4px; flex-shrink: 0;" onerror="this.style.display='none'" />` : ''}
+          <div>
+            <div style="font-weight: 700; font-size: 11.5px; color: #000000;">${displayName}</div>
+            ${desc ? `<div style="font-size: 9.5px; color: #4b5563; font-style: italic; margin-top: 2px;">${desc.replace(/\n/g, '<br/>')}</div>` : ''}
+            ${suryaCode ? `<div style="font-size: 9px; color: #4b5563; margin-top: 2px;"><span style="font-weight:600;">Surya Code:</span> ${suryaCode}</div>` : ''}
+            ${externalCode ? `<div style="font-size: 9px; color: #0284c7; margin-top: 1px;"><span style="font-weight:600;">Customer/Competitor Code:</span> ${externalCode}</div>` : ''}
+            ${!showDiscountCol && itemDiscountPct > 0 ? `<div style="font-size: 9px; color: #16a34a; font-weight:600; margin-top: 2px;">Discount: ${itemDiscountPct}% (−${formatCurrency(itemDiscountAmt)})</div>` : ''}
+          </div>
+        </div>
       </td>
       <td style="padding: 7px 8px; text-align: center; color: #374151; font-size: 10.5px;">
         ${uom}
@@ -165,6 +194,7 @@ export async function generateQuotationPDF(rawDoc) {
       <td style="padding: 7px 8px; text-align: right; color: #111827;">
         ${formatCurrency(rate)}
       </td>
+      ${showDiscountCol ? `<td style="padding: 7px 8px; text-align: right; color: #16a34a; font-size: 10.5px; font-weight: 600;">${itemDiscountPct > 0 ? `${itemDiscountPct}%` : '—'}</td>` : ''}
       <td style="padding: 7px 8px; text-align: right; font-weight: 700; color: #000000; font-size: 11.5px;">
         ${formatCurrency(amount)}
       </td>
@@ -434,13 +464,20 @@ export async function generateQuotationPDF(rawDoc) {
         <div class="meta-column">
           <div class="meta-row">
             <div class="meta-label">Quotation No:</div>
-            <div class="meta-val">${qName}</div>
+            <div class="meta-val">${qName} ${version ? `<span style="font-size: 9px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 1px 6px; border-radius: 3px; margin-left: 4px;">${version}</span>` : ''}</div>
           </div>
           <div class="meta-row">
             <div class="meta-label">Quotation Date:</div>
             <div class="meta-val">${qDate}</div>
           </div>
-          
+          <div class="meta-row">
+            <div class="meta-label">Validity:</div>
+            <div class="meta-val">${validityDays} Days ${validUntil ? `(Valid until: ${validUntil})` : ''}</div>
+          </div>
+          <div class="meta-row">
+            <div class="meta-label">Currency:</div>
+            <div class="meta-val">${currency} (${currencySymbol})</div>
+          </div>
         </div>
         <div class="meta-column">
           <div class="meta-row">
@@ -449,8 +486,13 @@ export async function generateQuotationPDF(rawDoc) {
           </div>
           <div class="meta-row">
             <div class="meta-label">Status:</div>
-            <div class="meta-val">${status}</div>
+            <div class="meta-val"><span style="text-transform: uppercase; font-weight: 700;">${status}</span></div>
           </div>
+          ${createdBy ? `
+          <div class="meta-row">
+            <div class="meta-label">Created By:</div>
+            <div class="meta-val">${createdBy}</div>
+          </div>` : ''}
         </div>
       </div>
 
@@ -463,8 +505,9 @@ export async function generateQuotationPDF(rawDoc) {
             <th style="text-align: left;">Description</th>
             <th style="width: 60px; text-align: center;">UOM</th>
             <th style="width: 75px; text-align: right;">Quantity</th>
-            <th style="width: 95px; text-align: right;">Rate (₹)</th>
-            <th style="width: 110px; text-align: right;">Amount (₹)</th>
+            <th style="width: 95px; text-align: right;">Rate (${currencySymbol})</th>
+            ${showDiscountCol ? `<th style="width: 70px; text-align: right;">Disc (%)</th>` : ''}
+            <th style="width: 110px; text-align: right;">Amount (${currencySymbol})</th>
           </tr>
         </thead>
         <tbody>
@@ -472,7 +515,7 @@ export async function generateQuotationPDF(rawDoc) {
           <tr class="table-total-row">
             <td colspan="3" style="font-weight: 800; color: #000000;">TOTAL QUANTITY &amp; SUBTOTAL</td>
             <td style="text-align: right; font-weight: 800; color: #000000;">${fmtNum(totalUnits)}</td>
-            <td colspan="2" style="text-align: right; font-size: 10px; color: #374151;">Subtotal (excl. tax):</td>
+            <td colspan="${showDiscountCol ? 2 : 1}" style="text-align: right; font-size: 10px; color: #374151;">Subtotal (excl. tax):</td>
             <td style="text-align: right; font-weight: 800; color: #000000;">${formatCurrency(rawSubtotal)}</td>
           </tr>
         </tbody>
@@ -554,7 +597,7 @@ export async function generateQuotationPDF(rawDoc) {
       <div class="terms-box">
         <div class="terms-title">Terms &amp; Conditions</div>
         <ol>
-          <li>Prices quoted above are firm and valid for 15 calendar days from the date of quotation.</li>
+          <li>Prices quoted above are firm and valid for ${validityDays} calendar days from the date of quotation${validUntil ? ` (valid until ${validUntil})` : ''}.</li>
           <li>Delivery schedules commence upon receipt of confirmed Purchase Order and approved technical drawings.</li>
           <li>Standard manufacturing tolerances apply as per relevant IS/DIN technical specifications.</li>
           <li>Payment terms: Subject to approved credit limits and commercial terms agreed upon.</li>

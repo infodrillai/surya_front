@@ -1,10 +1,11 @@
+import { beltBatchConfig } from './beltBatchResource';
 /**
  * One config per screen. CrudPage + DocForm turn these into list, form, validation and live maths.
  * @typedef {{name:string,label:string,type?:string,master?:string,doctype?:string,filter?:Function,required?:boolean,
  *   readOnly?:boolean,readOnlyOnEdit?:boolean,summary?:boolean,positive?:boolean,showIf?:Function,options?:string[]}} FieldConfig
  */
 import React from 'react';
-import { enhanceQuotation, quotationMasters } from '../lib/quotationFeatures';
+import { enhanceQuotation, quotationMasters, getEffectiveQuotationStatus, fetchProductInfo } from '../lib/quotationFeatures';
 import { Box, Button, Chip, LinearProgress, Stack, Typography } from '@mui/material';
 import AssignmentReturnIcon from '@mui/icons-material/AssignmentReturn';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -85,12 +86,14 @@ const customer = {
 // ---- Product (with its BOM inside) -----------------------------------------
 const raw = (r) => r.product_type === 'Raw';
 const bomRow = (extra = []) => [link('process', 'Process', 'Process'), link('product', 'Raw material', 'Product', { filter: (r) => r.product_type === 'Raw' || r.product_type === 'Semi', required: true, minWidth: 220 }), num('per_unit_utilization', 'Per-unit utilization', { positive: true }), ...extra];
-const BOM_TABLES = ['stage1_items', 'stage2_items', 'stage3_items', 'stage3_charges'];
+const BOM_TABLES = ['stage1_items', 'stage2_items', 'stage3_items', 'stage3_charges', 'belt_p1_items', 'belt_p2_items', 'belt_p3_items', 'belt_p4_charges'];
 const steps = (v) => (v?.product_type && v.product_type !== 'Raw' ? Number(v.total_steps) || 3 : 0);
+const isBelt = (v) => (v?.product_type === 'Finished' || v?.product_type === 'Semi') && v?.finished_good_type === 'Belt';
+const beltSteps = (v) => Number(v?.total_steps) || 4;
 
 const product = {
   doctype: 'Product', master: true, title: 'Product', tableTabs: true,
-  tableTabsEmpty: 'Raw products do not use a BOM. Select Product type "Semi" or "Finished" to configure BOM stages 1, 2, and 3.',
+  tableTabsEmpty: 'Raw products do not use a BOM. Select Product type "Semi" or "Finished" to configure BOM stages.',
   subtitle: 'Raw, semi-finished and finished products. Semi / Finished products carry their BOM stages here.',
   fields: [
     t('product_name', 'Product name', { required: true }),
@@ -101,33 +104,59 @@ const product = {
     t('production_code', 'Production Code', { required: false }),
     sel('product_type', 'Product type', ['Raw', 'Semi', 'Finished'], { required: true, default: () => 'Raw' }),
     sel('finished_good_type', 'Finished Good Type', ['PU', 'Belt'], {
-      showIf: (v) => v.product_type === 'Finished',
+      showIf: (v) => v.product_type === 'Finished' || v.product_type === 'Semi',
       default: () => 'PU',
+      onChange: (proxy) => {
+        if (proxy.finished_good_type === 'Belt') {
+          proxy.total_steps = 4;
+        } else if (proxy.finished_good_type === 'PU') {
+          proxy.total_steps = 3;
+        }
+      },
     }),
-    sel('band_type', 'Band Type', ['Grommed', 'Grommed with Aluminium Patti', 'Lower', 'Upper'], {
-      showIf: (v) => v.product_type === 'Finished' && v.finished_good_type === 'Belt',
+    sel('belt_type', 'Belt Type', [
+      'Grommed with Aluminium Patti',
+      'Grommed Band',
+      'Upper Belt',
+      'Lower Belt',
+      'Grommed',
+      'Standard Belt',
+      'Other',
+    ], {
+      showIf: (v) => (v.product_type === 'Finished' || v.product_type === 'Semi') && v.finished_good_type === 'Belt',
+      default: () => 'Grommed',
     }),
     num('belt_length', 'Length', {
-      positive: true,
+      default: () => 0,
       showIf: (v) => v.product_type === 'Finished' && v.finished_good_type === 'Belt',
     }),
     num('belt_width', 'Width', {
-      positive: true,
+      default: () => 0,
       showIf: (v) => v.product_type === 'Finished' && v.finished_good_type === 'Belt',
     }),
     num('hole', 'Hole', {
-      positive: true,
+      default: () => 0,
       showIf: (v) => v.product_type === 'Finished' && v.finished_good_type === 'Belt',
     }),
-    link('uom', 'UOM', 'UOM', { required: true }),
+    // purchase_uom and production_uom removed for Belt products
     link('category', 'Category', 'Category'),
+    link('uom', 'UOM', 'UOM', { required: true }),
     sel('total_steps', 'BOM Stages (Total steps)', [
       { value: 1, label: '1 Stage (Insert only)' },
       { value: 2, label: '2 Stages (Insert & Casting)' },
       { value: 3, label: '3 Stages (Insert, Casting & CNC / Charge)' },
     ], {
-      showIf: (v) => v.product_type && v.product_type !== 'Raw',
+      showIf: (v) => v.product_type && v.product_type !== 'Raw' && v.finished_good_type !== 'Belt',
       default: () => 3,
+    }),
+    sel('total_steps', 'BOM Stages (Total steps)', [
+      { value: 1, label: 'Stage 1 (Roll Creation)' },
+      { value: 2, label: 'Stage 2 (Roll Creation, Roll Sizing)' },
+      { value: 3, label: 'Stage 3 (Roll Sizing, Finished & Charge)' },
+      { value: 4, label: 'Stage 4 (Roll Creation, Roll Sizing, Roll Finished, Charges)' },
+    ], {
+      showIf: (v) => (v.product_type === 'Finished' || v.product_type === 'Semi') && v.finished_good_type === 'Belt',
+      default: () => 4,
     }),
     num('max_purchase_qty', 'Max Purchase Qty Limit (Approval threshold)'),
     num('low_stock_limit', 'Low stock limit'),
@@ -138,65 +167,125 @@ const product = {
   tables: [
     {
       name: 'stage1_items',
-      label: 'BOM · Stage 1 (Insert / Roll - Raw materials & Scrap)',
+      label: 'BOM - Stage 1 (Insert Making)',
       empty: 'Add Stage 1 raw materials and optional scrap/wastage product.',
-      fields: bomRow([link('wastage_product', 'Wastage scrap product', 'Product', { filter: (r) => !!r.is_scrap, minWidth: 200 })]),
+      fields: bomRow([link('wastage_product', 'Wastage scrap product', 'Product', { filter: (r) => !r.is_scrap, minWidth: 200 })]),
       showIf: (v) => steps(v) >= 1 && v.finished_good_type !== 'Belt',
       newRow: () => ({ per_unit_utilization: '' }),
     },
     {
       name: 'stage2_items',
-      label: 'BOM · Stage 2 (Casting / Belt Sizing - Materials & Rolls)',
-      empty: 'Add Stage 2 raw materials or Roll product.',
+      label: 'BOM - Stage 2 (PU Casting)',
+      empty: 'Add Stage 2 raw materials.',
       fields: [
         link('process', 'Process', 'Process'),
-        link('product', 'Material / Roll', 'Product', { filter: (r) => r.product_type === 'Raw' || r.product_type === 'Semi', required: true, minWidth: 220 }),
+        link('product', 'Material', 'Product', { filter: (r) => r.product_type === 'Raw' || r.product_type === 'Semi', required: true, minWidth: 220 }),
         num('per_unit_utilization', 'Per-unit utilization', { positive: true }),
         num('ratio', 'Ratio', { positive: true }),
       ],
-      showIf: (v) => steps(v) >= 2,
+      showIf: (v) => steps(v) >= 2 && v.finished_good_type !== 'Belt',
       newRow: () => ({ per_unit_utilization: '', ratio: '' }),
     },
     {
-      name: 'stage3_items',
-      label: 'BOM · Stage 3 (Belt Finishing - Components)',
-      empty: 'Add Stage 3 component items (e.g. rivets, eyelets).',
-      fields: [
-        link('process', 'Process', 'Process'),
-        link('product', 'Component', 'Product', { filter: raw, required: true, minWidth: 200 }),
-        sel('calculation_type', 'Calculation Type', ['Quantity', 'Hole'], { default: () => 'Quantity' }),
-        num('ratio', 'Ratio', { positive: true, required: true }),
-      ],
-      showIf: (v) => steps(v) >= 3 && v.finished_good_type === 'Belt',
-      newRow: () => ({ calculation_type: 'Quantity', ratio: '' }),
-    },
-    {
       name: 'stage3_charges',
-      label: 'BOM · Stage 3 (CNC / Finishing - Overhead & Charges)',
+      label: 'BOM - Stage 3 (CNC / Charge)',
       empty: 'Add Stage 3 charges (e.g. Labour, Electricity, Finishing).',
       fields: [
         link('charge', 'Charge', 'Charge', { required: true, minWidth: 200 }),
         cur('per_unit_price', 'Price per unit', { positive: true }),
         { name: 'in_tooling_base', label: 'In tooling base', type: 'check' },
       ],
-      showIf: (v) => steps(v) >= 3,
+      showIf: (v) => steps(v) >= 3 && v.finished_good_type !== 'Belt',
       newRow: () => ({ per_unit_price: '', in_tooling_base: 0 }),
     },
+    {
+      name: 'belt_p1_items',
+      label: 'BOM - Stage 1 (Roll Creation)',
+      empty: 'Configure Stage 1 roll creation materials.',
+      fields: [
+        link('process', 'Process', 'Process'),
+        link('product', 'Raw material', 'Product', { filter: (r) => r.product_type === 'Raw' || r.product_type === 'Semi', required: true, minWidth: 220 }),
+        num('per_unit_utilization', 'Per-unit utilization', { positive: true }),
+      ],
+      showIf: (v) => isBelt(v) && [1, 2, 4].includes(beltSteps(v)),
+      newRow: () => ({ per_unit_utilization: '' }),
+    },
+    {
+      name: 'belt_p2_items',
+      label: 'BOM - Stage 2 (Roll Sizing)',
+      empty: 'Configure Stage 2 roll sizing materials.',
+      fields: [
+        link('process', 'Process', 'Process'),
+        link('product', 'Raw material', 'Product', { filter: (r) => r.product_type === 'Raw' || r.product_type === 'Semi', required: true, minWidth: 220 }),
+        num('ratio', 'Ratio', { positive: true }),
+      ],
+      showIf: (v) => isBelt(v) && [2, 3, 4].includes(beltSteps(v)),
+      newRow: () => ({ ratio: '' }),
+    },
+    {
+      name: 'belt_p3_items',
+      label: 'BOM - Stage 3 (Roll Finished)',
+      empty: 'Configure Stage 3 roll finished materials.',
+      fields: [
+        link('process', 'Process', 'Process'),
+        link('product', 'Raw material', 'Product', { filter: (r) => r.product_type === 'Raw' || r.product_type === 'Semi', required: true, minWidth: 220 }),
+        sel('calculation_type', 'Calculation Type', ['Hole', 'Quantity'], { default: () => 'Quantity' }),
+        num('ratio', 'Ratio', { positive: true }),
+      ],
+      showIf: (v) => isBelt(v) && [3, 4].includes(beltSteps(v)),
+      newRow: () => ({ calculation_type: 'Quantity', ratio: '' }),
+    },
+    {
+      name: 'belt_p4_charges',
+      label: 'BOM - Stage 4 (Charges)',
+      empty: 'Configure Stage 4 charges.',
+      fields: [
+        link('charge', 'Charge', 'Charge', { required: true, minWidth: 200 }),
+        cur('per_unit_price', 'Per-unit price', { positive: true }),
+        { name: 'in_tooling_base', label: 'In tooling base', type: 'check' },
+      ],
+      showIf: (v) => isBelt(v) && [3, 4].includes(beltSteps(v)),
+      newRow: () => ({ per_unit_price: 10, in_tooling_base: 0 }),
+    },
   ],
+  compute: (v) => {
+    if (!isBelt(v)) return {};
+    const holeCount = Number(v.hole) || 0;
+    const p3 = (v.belt_p3_items || []).map((row) => {
+      const ratio = Number(row.ratio) || 0;
+      const calcType = row.calculation_type || 'Quantity';
+      const output = calcType === 'Hole' ? holeCount * ratio : ratio;
+      return {
+        ...row,
+        per_unit_utilization: output,
+      };
+    });
+    return {
+      rows: {
+        belt_p3_items: p3,
+      },
+    };
+  },
   validate: (v) => {
     const e = {};
     if (v.product_type && v.product_type !== 'Raw') {
-      const numSteps = Number(v.total_steps) || 3;
-      if (![1, 2, 3].includes(numSteps)) e.total_steps = 'Select 1, 2 or 3 stages';
-      const isBelt = v.product_type === 'Finished' && v.finished_good_type === 'Belt';
-      if (!isBelt && numSteps >= 1 && !v.stage1_items?.length) e.stage1_items = 'Add Stage 1 BOM rows';
-      if (numSteps >= 2 && !v.stage2_items?.length) e.stage2_items = 'Add Stage 2 BOM rows';
-      if (!isBelt && numSteps >= 3 && !v.stage3_charges?.length) e.stage3_charges = 'Add Stage 3 charges';
-      if (isBelt && numSteps >= 3 && !v.stage3_items?.length && !v.stage3_charges?.length) e.stage3_items = 'Add Stage 3 components or charges';
+      const isB = isBelt(v);
+      const numSteps = Number(v.total_steps) || (isB ? 4 : 3);
+      if (!isB) {
+        if (![1, 2, 3].includes(numSteps)) e.total_steps = 'Select 1, 2 or 3 stages';
+        if (numSteps >= 1 && !v.stage1_items?.length) e.stage1_items = 'Add Stage 1 BOM rows';
+        if (numSteps >= 2 && !v.stage2_items?.length) e.stage2_items = 'Add Stage 2 BOM rows';
+        if (numSteps >= 3 && !v.stage3_charges?.length) e.stage3_charges = 'Add Stage 3 charges';
+      } else {
+        if (![1, 2, 3, 4].includes(numSteps)) e.total_steps = 'Select 1, 2, 3 or 4 stages';
+        if ([1, 2, 4].includes(numSteps) && !v.belt_p1_items?.length) e.belt_p1_items = 'Add Stage 1 (Roll Creation) BOM rows';
+        if ([2, 3, 4].includes(numSteps) && !v.belt_p2_items?.length) e.belt_p2_items = 'Add Stage 2 (Roll Sizing) BOM rows';
+        if ([3, 4].includes(numSteps) && !v.belt_p3_items?.length) e.belt_p3_items = 'Add Stage 3 (Roll Finished) BOM rows';
+        if ([3, 4].includes(numSteps) && !v.belt_p4_charges?.length) e.belt_p4_charges = 'Add Stage 4 (Charges) rows';
+      }
     }
     return e;
   },
-  // saved as a second document (BOM, named after the product) right after the Product
   companion: {
     doctype: 'BOM',
     tables: BOM_TABLES,
@@ -209,7 +298,16 @@ const product = {
           b = null;
         }
       }
-      return b ? Object.fromEntries(BOM_TABLES.map((k) => [k, b[k] || []])) : {};
+      if (!b) return {};
+      const res = Object.fromEntries(BOM_TABLES.map((k) => [k, b[k] || []]));
+      if (row.finished_good_type === 'Belt') {
+        res.belt_p1_items = (b.stage1_items?.length ? b.stage1_items : b.belt_p1_items) || [];
+        res.belt_p2_items = (b.stage2_items?.length ? b.stage2_items : b.belt_p2_items) || [];
+        res.belt_p3_items = (b.stage3_items?.length ? b.stage3_items : b.belt_p3_items) || [];
+        res.belt_p4_charges = (b.stage3_charges?.length ? b.stage3_charges : b.belt_p4_charges) || [];
+        res.total_steps = row.total_steps || b.total_steps || 4;
+      }
+      return res;
     },
     async save(saved, tables) {
       let exists = !!(await db.BOM.get(saved.name));
@@ -221,12 +319,55 @@ const product = {
         }
       }
       if (saved.product_type === 'Raw') { if (exists) await deleteDoc('BOM', saved.name); return; }
-      const s = Number(saved.total_steps) || 3;
+      const isB = (saved.product_type === 'Finished' || saved.product_type === 'Semi') && saved.finished_good_type === 'Belt';
+      const s = Number(saved.total_steps) || (isB ? 4 : 3);
+      const holeCount = Number(saved.hole) || 0;
       const body = {
         product: saved.name,
-        stage1_items: tables.stage1_items || [],
-        stage2_items: s >= 2 ? tables.stage2_items || [] : [],
-        stage3_charges: s >= 3 ? tables.stage3_charges || [] : [],
+        total_steps: s,
+        ...(isB
+          ? {
+              stage1_items: [1, 2, 4].includes(s)
+                ? (tables.belt_p1_items || []).map((r) => ({
+                    process: r.process || '',
+                    product: r.product,
+                    per_unit_utilization: Number(r.per_unit_utilization) || 0,
+                  }))
+                : [],
+              stage2_items: [2, 3, 4].includes(s)
+                ? (tables.belt_p2_items || []).map((r) => ({
+                    process: r.process || '',
+                    product: r.product,
+                    ratio: Number(r.ratio) || 0,
+                    per_unit_utilization: Number(r.ratio) || 0,
+                  }))
+                : [],
+              stage3_items: [3, 4].includes(s)
+                ? (tables.belt_p3_items || []).map((r) => {
+                    const ratio = Number(r.ratio) || 0;
+                    const calcType = r.calculation_type || 'Quantity';
+                    const perUnit = calcType === 'Hole' ? holeCount * ratio : ratio;
+                    return {
+                      process: r.process || '',
+                      product: r.product,
+                      calculation_type: calcType,
+                      ratio,
+                      per_unit_utilization: perUnit,
+                    };
+                  })
+                : [],
+              stage3_charges: [3, 4].includes(s)
+                ? (tables.belt_p4_charges || []).map((r) => ({
+                    charge: r.charge,
+                    per_unit_price: Number(r.per_unit_price) || 0,
+                  }))
+                : [],
+            }
+          : {
+              stage1_items: tables.stage1_items || [],
+              stage2_items: s >= 2 ? tables.stage2_items || [] : [],
+              stage3_charges: s >= 3 ? tables.stage3_charges || [] : [],
+            }),
       };
       if (exists) await updateDoc('BOM', saved.name, body);
       else await insertDoc('BOM', body);
@@ -294,7 +435,7 @@ const purchase = {
     link('vendor', 'Vendor', 'Vendor', { required: true }),
     date('posting_date', 'Order date', { required: true }),
     date('expected_delivery_date', 'Expected delivery'),
-    t('bill_no', 'Supplier Bill / Ref'),
+    t('bill_no', 'Bill No'),
     ro(t('vendor_state', 'Vendor state')),
     ro(num('total_received_qty', 'Total Received', { showIf: (_, { isNew } = {}) => !isNew })),
     ro(num('total_pending_qty', 'Total Pending', { showIf: (_, { isNew } = {}) => !isNew })),
@@ -343,8 +484,8 @@ const purchase = {
   columns: [
     col('name', 'Order No'),
     col('vendor', 'Vendor'),
-    col('posting_date', 'Order Date', 'date'),
-    col('expected_delivery_date', 'Expected Delivery', 'date'),
+    col('posting_date', 'Order Dt.', 'date'),
+    col('expected_delivery_date', 'Exp. Delivery', 'date'),
     col('total_ordered_qty', 'Ordered', 'number'),
     col('total_received_qty', 'Received', 'number'),
     col('total_pending_qty', 'Pending', 'number'),
@@ -434,8 +575,8 @@ const itemFields = [
   cur('extra_cost', 'Extra cost / pc'),
 ];
 
-const STAGE_TITLES = { 1: 'Stage 1 (Insert / Roll Creation) batch', 2: 'Stage 2 (PU Casting / Belt Sizing) batch', 3: 'Stage 3 (CNC / Belt Finishing) batch' };
-const STAGE_PLURALS = { 1: 'Stage 1 (Insert / Roll Creation) batches', 2: 'Stage 2 (PU Casting / Belt Sizing) batches', 3: 'Stage 3 (CNC / Belt Finishing) batches' };
+const STAGE_TITLES = { 1: 'Stage 1 (Insert Making) batch', 2: 'Stage 2 (PU Casting) batch', 3: 'Stage 3 (CNC Machine) batch' };
+const STAGE_PLURALS = { 1: 'Stage 1 (Insert Making) batches', 2: 'Stage 2 (PU Casting) batches', 3: 'Stage 3 (CNC Machine) batches' };
 
 const stageConfig = (stage) => ({
   doctype: `Stage ${stage} Batch`,
@@ -493,33 +634,30 @@ export const STAGE_CONFIGS = [stageConfig(1), stageConfig(2), stageConfig(3)];
 // ---- Sales -----------------------------------------------------------------
 const finished = (r) => r.product_type === 'Finished';
 
-// Fetch default UOM and cost/unit when a product is selected in a row
-const fetchProductInfo = async (product) => {
-  if (!product) return {};
-  try {
-    const doc = await getDoc('Product', product);
-    return {
-      uom: doc?.uom || '',
-      production_cost: doc?.production_cost || 0,
-    };
-  } catch (e) {
-    console.warn('Unable to fetch product info for', product, e);
-    return {};
-  }
-};
+//   } catch (e) {
+//     console.warn('Unable to fetch product info for', product, e);
+//     return {};
+//   }
+// };
 const belowBanner = (v) => (v.below_cost ? { severity: 'warning', text: 'One or more rows are priced below production cost.' } : null);
 
-// Helper to compute final rate (including PR) and line amount
-const computeLineAmount = (row) => {
-  const qty = Number(row.quantity) || 0;
-  const rate = Number(row.rate) || 0;
+// ---- Sales Order line calc — mirrors quotation: rate from cost+PR, amount = qty*rate*(1+gst)*(1-discount) ----
+const soLineCalc = (row) => {
+  const cost = Number(row.production_cost) || 0;
   const pr = Number(row.pr) || 0;
-  const addCost = (rate * pr) / 100;
-  const finalRate = rate + addCost;
-  return { finalRate, amount: qty * finalRate };
+  const qty = Number(row.quantity) || 0;
+  const gst = row.gst_percent !== undefined && row.gst_percent !== '' ? Number(row.gst_percent) : 0;
+  const discPct = row.item_discount_percent !== undefined && row.item_discount_percent !== '' ? Number(row.item_discount_percent) : 0;
+  // If user typed a manual rate use it; otherwise derive from cost+PR
+  const existingRate = Number(row.rate) || 0;
+  const rate = cost > 0 ? cost * (1 + pr / 100) * (1 + gst / 100) : existingRate;
+  const gross = qty * rate;
+  const discAmt = (gross * discPct) / 100;
+  const amount = gross - discAmt;
+  return { rate, amount, gross_amount: gross, item_discount_amount: discAmt };
 };
+
 const salesRow = [
-  // Product with onChange to fill UOM and cost/unit
   {
     ...link('product', 'Product', 'Product', {
       required: true,
@@ -529,24 +667,32 @@ const salesRow = [
         const info = await fetchProductInfo(row.product);
         row.uom = info.uom;
         row.production_cost = info.production_cost;
+        const { rate, amount } = soLineCalc({ ...row, production_cost: info.production_cost });
+        row.rate = rate;
+        row.amount = amount;
       },
     }),
   },
   ro(t('uom', 'UOM')),
   ro(cur('production_cost', 'Cost / unit', { dp: 4 })),
-  num('quantity', 'Qty', { positive: true, onChange: (row) => { const { finalRate, amount } = computeLineAmount(row); row.final_rate = finalRate; row.amount = amount; } }),
-  num('pr', 'PR (%)', { dp: 2, default: () => 0, onChange: (row) => { const { finalRate, amount } = computeLineAmount(row); row.final_rate = finalRate; row.amount = amount; } }),
-  // per‑line Discount & GST (displayed below item fields)
-  cur('rate', 'Rate', { onChange: (row) => { const { finalRate, amount } = computeLineAmount(row); row.final_rate = finalRate; row.amount = amount; } }),
+  num('quantity', 'Qty', { positive: true, onChange: (row) => { const r = soLineCalc(row); row.rate = r.rate; row.amount = r.amount; } }),
+  num('pr', 'PR (%)', { dp: 2, default: () => 0, onChange: (row) => { const r = soLineCalc(row); row.rate = r.rate; row.amount = r.amount; } }),
+  cur('rate', 'Rate', { dp: 4, onChange: (row) => { const r = soLineCalc(row); row.amount = r.amount; } }),
+  num('gst_percent', 'GST (%)', { min: 0, max: 100, default: () => 0, onChange: (row) => { const r = soLineCalc(row); row.rate = r.rate; row.amount = r.amount; } }),
+  num('item_discount_percent', 'Discount (%)', { min: 0, max: 100, default: () => 0, onChange: (row) => { const r = soLineCalc(row); row.amount = r.amount; } }),
   ro(cur('amount', 'Amount')),
 ];
+
+
+
 
 // ---- Quotation-specific row ---------------------------------------------------
 const quotationLineCalc = (row) => {
   const cost = Number(row.production_cost) || 0;
   const pr = Number(row.pr) || 0;
   const qty = Number(row.quantity) || 0;
-  const rate = cost * (1 + pr / 100);
+  const gst = row.gst_percent !== undefined && row.gst_percent !== '' ? Number(row.gst_percent) : 0;
+  const rate = cost * (1 + pr / 100) * (1 + gst / 100);
   const amount = qty * rate;
   return { rate, amount };
 };
@@ -572,9 +718,11 @@ const quotationRow = [
   ro(cur('production_cost', 'Cost / unit', { dp: 4 })),
   num('quantity', 'Qty', { positive: true, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }),
   num('pr', 'PR (%)', { dp: 2, default: () => 0, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }),
-  ro(cur('rate', 'Rate', { dp: 4 })),     // Cost/unit × (1 + PR%) — auto-calculated
+  num('gst_percent', 'GST (%)', { min: 0, max: 100, default: () => 0, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }),
+  ro(cur('rate', 'Rate', { dp: 4 })),     // Cost/unit × (1 + PR%) × (1 + GST%) — auto-calculated
   ro(cur('amount', 'Amount')),
 ];
+
 
 
 
@@ -585,8 +733,7 @@ const quotation = {
   usesFinishedCost: true,
   subtitle: 'Quotation with discount, GST and versioning.',
 
-  isLocked: (d) =>
-    ['Superseded', 'Accepted'].includes(d?.status),
+  isLocked: (d) => ['Superseded', 'Accepted', 'Rejected', 'Disapproved'].includes(getEffectiveQuotationStatus ? getEffectiveQuotationStatus(d) : d?.status),
 
   fields: [
     link('customer', 'Customer', 'Customer', { required: true }),
@@ -600,7 +747,7 @@ const quotation = {
     { ...num('discount_percent', 'Discount (%)', { max: 100, default: () => 0 }), summary: true, editable: true },
     sum(cur('discount_amount', 'Discount Amount')),
     // Packing & Transport — editable in summary panel
-    { ...num('gst_percent', 'GST (%)', { max: 100, default: () => 18 }), summary: true, editable: true },
+    { ...num('gst_percent', 'GST (%)', { max: 100, default: () => 0 }), summary: true, editable: true },
     sum(cur('tax_amount', 'GST Amount')),
     sum(cur('grand_total', 'Grand Total')),
   ],
@@ -629,7 +776,7 @@ const quotation = {
             size="small"
             variant="outlined"
             startIcon={<OpenInNewIcon fontSize="small" />}
-            onClick={() => window.open(`/quotation?open=${encodeURIComponent(prevVersion)}`, '_blank')}
+            onClick={() => openQuotation(prevVersion)}
             sx={{ fontSize: 11, py: 0.25 }}
           >
             Previous: {prevVersion}
@@ -671,7 +818,7 @@ const quotation = {
     name: 'items',
     label: 'Items',
     fields: quotationRow,
-    newRow: () => ({ quantity: '', pr: 0, name: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` }),
+    newRow: () => ({ quantity: '', pr: 0, gst_percent: 0, name: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` }),
     empty: 'Add finished products to quote.',
   }],
 
@@ -681,14 +828,17 @@ const quotation = {
     const base = salesCalc(v, ctx);
     const baseItems = base.rows?.items || v.items || [];
 
-    // For each row: rate = production_cost × (1 + pr/100), amount = qty × rate
+    // For each row: rate = production_cost × (1 + pr/100) × (1 + gst/100), amount = qty × rate
     const items = baseItems.map((item) => {
       const cost = Number(item.production_cost) || 0;
       const pr = Number(item.pr) || 0;
       const qty = Number(item.quantity) || 0;
-      const rate = cost * (1 + pr / 100);
+      const gst = item.gst_percent !== undefined && item.gst_percent !== '' ? Number(item.gst_percent) : 0;
+      const rate = cost * (1 + pr / 100) * (1 + gst / 100);
       const amount = qty * rate;
-      return { ...item, rate, amount };
+      const taxable = amount / (1 + (gst || 0) / 100);
+      const gstAmt = amount - taxable;
+      return { ...item, rate, amount, gst_percent: gst, gst_amount: gstAmt, taxable_amount: taxable };
     });
 
     const subtotal = items.reduce((t, it) => t + it.amount, 0);
@@ -696,19 +846,23 @@ const quotation = {
     const discountAmt = (subtotal * discountPct) / 100;
     const packingCharges = Number(v.packing_charges) || 0;
     const transportCharges = Number(v.transport_charges) || 0;
-    const taxableAmt = Math.max(0, subtotal - discountAmt) + packingCharges + transportCharges;
-    const gstPct = v.gst_percent !== undefined && v.gst_percent !== null && v.gst_percent !== '' ? Number(v.gst_percent) : 18;
+    const chargesTaxable = packingCharges + transportCharges;
+    const gstPct = v.gst_percent !== undefined && v.gst_percent !== null && v.gst_percent !== '' ? Number(v.gst_percent) : 0;
+    const chargesGst = (chargesTaxable * gstPct) / 100;
+    const itemsGst = items.reduce((s, it) => s + (it.gst_amount || 0), 0) * (1 - discountPct / 100);
+    const taxAmt = itemsGst + chargesGst;
+    const grandTotal = Math.max(0, subtotal - discountAmt) + chargesTaxable + chargesGst;
+    const taxableAmt = grandTotal - taxAmt;
 
     const custState = ctx?.masters?.Customer?.[v.customer]?.state || '';
     const same = !custState || custState.trim().toLowerCase() === 'gujarat';
     let cgst = 0, sgst = 0, igst = 0;
     if (same) {
-      cgst = (taxableAmt * (gstPct / 2)) / 100;
-      sgst = (taxableAmt * (gstPct / 2)) / 100;
+      cgst = taxAmt / 2;
+      sgst = taxAmt / 2;
     } else {
-      igst = (taxableAmt * gstPct) / 100;
+      igst = taxAmt;
     }
-    const taxAmt = cgst + sgst + igst;
 
     return {
       top: {
@@ -723,7 +877,7 @@ const quotation = {
         igst,
         tax_amount: taxAmt,
         total_amount: subtotal,
-        grand_total: taxableAmt + taxAmt,
+        grand_total: grandTotal,
       },
       rows: { items },
     };
@@ -767,7 +921,7 @@ const quotation = {
     {
       key: 'revise',
       label: 'Revise Quotation',
-      show: (r) => !['Superseded', 'Accepted'].includes(r.status),
+      show: (r) => !['Superseded', 'Accepted'].includes(getEffectiveQuotationStatus ? getEffectiveQuotationStatus(r) : r.status),
       run: async (r) => {
         const resp = await runAction('Quotation', r.name, 'revise');
         const newName = resp?.result;
@@ -779,7 +933,7 @@ const quotation = {
     {
       key: 'approve',
       label: 'Approve',
-      show: (r) => ['Draft', 'Sent'].includes(r.status),
+      show: (r) => ['Draft', 'Sent'].includes(getEffectiveQuotationStatus ? getEffectiveQuotationStatus(r) : r.status),
       run: async (r) => {
         const result = await runAction('Quotation', r.name, 'approve');
         return result?.result ? `Approved ${r.name}` : `Failed to approve ${r.name}`;
@@ -788,7 +942,7 @@ const quotation = {
     {
       key: 'order',
       label: 'Create order',
-      show: (r) => r.status === 'Approved',
+      show: (r) => (getEffectiveQuotationStatus ? getEffectiveQuotationStatus(r) : r.status) === 'Approved',
       run: async (r) => {
         const soResult = await runAction('Quotation', r.name, 'make_sales_order');
         const soName = soResult.result;
@@ -798,9 +952,9 @@ const quotation = {
     {
       key: 'reject',
       label: 'Reject',
-      show: (r) => ['Draft', 'Sent', 'Approved'].includes(r.status),
+      show: (r) => ['Draft', 'Sent', 'Approved'].includes(getEffectiveQuotationStatus ? getEffectiveQuotationStatus(r) : r.status),
       run: async (r) => {
-        if (!window.confirm(`Reject quotation ${r.name}?`)) return 'Rejection cancelled.';
+        if (!window.confirm(`Reject quotation ${r.name}? The rejection status will be maintained.`)) return 'Rejection cancelled.';
         await runAction('Quotation', r.name, 'reject');
         return `Rejected ${r.name}`;
       },
@@ -816,7 +970,7 @@ const quotation = {
         fontSize: 12,
         fontWeight: 500,
         py: 0.2,
-        px: 1, 
+        px: 1,
         textTransform: 'none',
         boxShadow: '0 1px 3px rgba(13, 43, 86, 0.2)',
       },
@@ -909,13 +1063,12 @@ const salesOrder = {
   fields: [
     link('customer', 'Customer', 'Customer', { required: true }),
     date('order_date', 'Date'),
-    // ---- Summary panel (order = display order) ----
+    // ---- Summary panel ----
     sum(cur('subtotal', 'Subtotal')),
     { ...cur('packing_charges', 'Packing Charges', { default: () => 0 }), summary: true, editable: true },
     { ...cur('transport_charges', 'Transport Charges', { default: () => 0 }), summary: true, editable: true },
-        num('discount_percent', 'Discount (%)', { max: 100, default: () => 0, summary: true, editable: true }),
+    num('discount_percent', 'Discount (%)', { max: 100, default: () => 0, summary: true, editable: true }),
     sum(cur('discount_amount', 'Discount Amount')),
-    // Packing & Transport — editable in summary panel
     num('gst_percent', 'GST (%)', { max: 100, default: () => 18, summary: true, editable: true }),
     sum(cur('tax_amount', 'GST Amount')),
     sum(cur('grand_total', 'Grand Total')),
@@ -926,21 +1079,31 @@ const salesOrder = {
     name: 'items',
     label: 'Items',
     fields: [
-      ...salesRow.slice(0, 5),
-      ro(cur('final_rate', 'Final rate', { dp: 4 })),
-      ro(cur('amount', 'Amount')),
+      // salesRow already has: product, uom, production_cost, qty, pr, rate, gst%, discount%, amount
+      ...salesRow,
       ro(num('dispatched_qty', 'Dispatched')),
       ro(num('returned_qty', 'Returned')),
       ro(num('net_delivered_qty', 'Delivered')),
       ro(num('pending_qty', 'Pending')),
     ],
-    newRow: () => ({ quantity: '', pr: 0, rate: '' }),
+    newRow: () => ({ quantity: '', pr: 0, gst_percent: 0, item_discount_percent: 0, rate: '' }),
   }],
 
   compute: (v, ctx) => {
-    // Use salesCalc as base then recompute totals with discount/GST/charges
-    const base = salesCalc(v, ctx);
-    const items = base.rows?.items || v.items || [];
+    // Recalculate each line: rate = cost*(1+pr%)*(1+gst%), amount = qty*rate*(1-disc%)
+    const items = (v.items || []).map((r) => {
+      const cost = Number(r.production_cost) || 0;
+      const pr = Number(r.pr) || 0;
+      const qty = Number(r.quantity) || 0;
+      const gst = Number(r.gst_percent) || 0;
+      const disc = Number(r.item_discount_percent) || 0;
+      const existingRate = Number(r.rate) || 0;
+      const rate = cost > 0 ? cost * (1 + pr / 100) * (1 + gst / 100) : existingRate;
+      const gross = qty * rate;
+      const discAmt = (gross * disc) / 100;
+      const amount = gross - discAmt;
+      return { ...r, rate, gross_amount: gross, item_discount_amount: discAmt, amount };
+    });
     const subtotal = items.reduce((s, r) => s + (Number(r.amount) || 0), 0);
     const discountPct = Math.min(100, Math.max(0, Number(v.discount_percent) || 0));
     const discountAmt = subtotal * discountPct / 100;
@@ -949,9 +1112,12 @@ const salesOrder = {
     const taxableAmt = Math.max(0, subtotal - discountAmt) + packingCharges + transportCharges;
     const gstPct = Math.min(100, Math.max(0, Number(v.gst_percent) || 0));
     const taxAmt = taxableAmt * gstPct / 100;
+    const belowCost = items.some((r) => {
+      const cost = Number(r.production_cost) || 0;
+      return cost > 0 && (Number(r.rate) || 0) < cost;
+    }) ? 1 : 0;
     return {
       top: {
-        ...base.top,
         subtotal,
         total_amount: subtotal,
         discount_amount: discountAmt,
@@ -960,6 +1126,7 @@ const salesOrder = {
         taxable_amount: taxableAmt,
         tax_amount: taxAmt,
         grand_total: taxableAmt + taxAmt,
+        below_cost: belowCost,
       },
       rows: { items },
     };
@@ -1144,6 +1311,27 @@ const dispatch = {
       label: 'Confirm',
       show: (r) => r.dispatch_status === 'Draft' || r.dispatch_status === 'Pending Confirmation',
       run: async (r) => {
+        // Pre-check available finished stock before hitting the backend
+        try {
+          const fc = await call('clssurya.api.get_finished_cost', {}, { get: true });
+          if (fc) {
+            const fullDoc = await getDoc('Dispatch', r.name);
+            const shortages = (fullDoc?.items || []).filter((item) => {
+              const available = Number(fc[item.product]?.stock ?? fc[item.product]?.quantity ?? -1);
+              const needed = Number(item.quantity) || 0;
+              return available >= 0 && needed > available;
+            });
+            if (shortages.length) {
+              const lines = shortages.map((i) => {
+                const avail = Number(fc[i.product]?.stock ?? fc[i.product]?.quantity ?? 0);
+                return `• ${i.product}: need ${i.quantity}, available ${avail}`;
+              }).join('\n');
+              alert(`Insufficient Finished stock:\n${lines}\n\nPlease ensure these products are moved to Finished Goods before confirming dispatch.`);
+              return `Dispatch ${r.name} not confirmed — insufficient stock.`;
+            }
+          }
+        } catch (_) { /* stock pre-check failed silently; let backend validate */ }
+
         const ok = window.confirm(
           `Confirm Dispatch ${r.name}? This will deduct stock and cannot be undone easily.`
         );
@@ -1340,17 +1528,17 @@ const goodsReceipt = {
     ],
   }],
   compute: (v) => ({
-  top: {},
-  rows: {
-    items: (v.items || []).map((row) => ({
-      ...row,
-      amount:
-        (Number(row.received_qty) || 0) *
-        (Number(row.landed_rate) || 0),
-    })),
-  },
-}),
-  
+    top: {},
+    rows: {
+      items: (v.items || []).map((row) => ({
+        ...row,
+        amount:
+          (Number(row.received_qty) || 0) *
+          (Number(row.landed_rate) || 0),
+      })),
+    },
+  }),
+
   columns: [
     col('name', 'Receipt No'),
     col('purchase_order', 'PO No'),

@@ -55,9 +55,21 @@ export const call = async (method, args = {}, { get = false } = {}) => {
 
 const res = (dt) => `/api/resource/${encodeURIComponent(dt)}`;
 
-/** @param {string} doctype */
-export const getList = async (doctype, { fields = ['*'], orderBy = 'modified desc' } = {}) =>
-  (await request(res(doctype), { params: { fields: JSON.stringify(fields), limit_page_length: '0', order_by: orderBy } })).data;
+/**
+ * Fetch a list of documents.
+ * limit: explicit page size (default 500). Use a number to cap the request.
+ *        Frappe rejects limit_page_length=0 on some servers with 417; use a
+ *        large number instead.
+ */
+export const getList = async (doctype, { fields = ['*'], orderBy = 'modified desc', filters, limit = 500 } = {}) => {
+  const params = {
+    fields: JSON.stringify(fields),
+    limit_page_length: String(limit),
+    order_by: orderBy,
+  };
+  if (filters) params.filters = JSON.stringify(filters);
+  return (await request(res(doctype), { params })).data;
+};
 export const getDoc = async (doctype, name) => (await request(`${res(doctype)}/${encodeURIComponent(name)}`)).data;
 export const insertDoc = async (doctype, doc) => (await request(res(doctype), { method: 'POST', body: doc })).data;
 export const updateDoc = async (doctype, name, doc) => (await request(`${res(doctype)}/${encodeURIComponent(name)}`, { method: 'PUT', body: doc })).data;
@@ -65,22 +77,33 @@ export const deleteDoc = (doctype, name) => request(`${res(doctype)}/${encodeURI
 
 /** complete | reopen | approve | revise | make_sales_order */
 export async function runAction(doctype, name, action, args = {}) {
+  if (doctype === 'Belt Batch') {
+    if (action === 'complete') {
+      return await updateDoc('Belt Batch', name, { is_completed: 1 });
+    }
+    if (action === 'reopen') {
+      return await updateDoc('Belt Batch', name, { is_completed: 0 });
+    }
+  }
+  if (doctype === 'Quotation' && action === 'reject') {
+    try {
+      const resp = await call('clssurya.api.run_action', { doctype, name, action, args });
+      if (resp?.result || resp?.message) return resp;
+    } catch (_) {
+      // Backend run_action may not support 'reject'; fallback to updating status directly
+    }
+    await updateDoc('Quotation', name, { status: 'Rejected' });
+    return `Rejected ${name}`;
+  }
   try {
-    const resp = await call('clssurya.api.run_action', {
-      doctype,
-      name,
-      action,
-      args,
-    });
+    const resp = await call('clssurya.api.run_action', { doctype, name, action, args });
     return resp;
   } catch (e) {
     const msg = e.response?.data?.message || e.message || 'Unknown error';
-    // Show a toast notification (replace with your UI's toast system)
     alert(`Error: ${msg}`);
-    throw e; // re‑throw for react‑query to mark as failed
+    throw e;
   }
 }
-
 
 export async function login(usr, pwd) {
   await request('/api/method/login', { method: 'POST', body: { usr, pwd } });

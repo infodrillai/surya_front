@@ -8,6 +8,8 @@ import { MENU } from './config/menu';
 import { prepareCache, syncMasters } from './db/masterCache';
 import { startRealtime, stopRealtime } from './db/realtime';
 import BatchPage from './pages/BatchPage';
+import BeltBatchPage from './pages/BeltBatchPage';
+import BeltProductionReportPage from './pages/BeltProductionReportPage';
 import CustomerOutstandingPage from './pages/CustomerOutstandingPage';
 import Dashboard from './pages/Dashboard';
 import InventoryPage from './pages/InventoryPage';
@@ -59,6 +61,8 @@ function Shell() {
         ))}
         <Route path="/inventory" element={<Guard path="/inventory"><InventoryPage /></Guard>} />
         <Route path="/batch" element={<Guard path="/batch"><BatchPage /></Guard>} />
+        <Route path="/belt-batch" element={<Guard path="/belt-batch"><BeltBatchPage /></Guard>} />
+        <Route path="/belt-production-report" element={<Guard path="/belt-production-report"><BeltProductionReportPage /></Guard>} />
         <Route path="/customer-outstanding" element={<Guard path="/customer-outstanding"><CustomerOutstandingPage /></Guard>} />
         <Route path="/pending-order-analysis" element={<Guard path="/pending-order-analysis"><PendingOrderAnalysisPage /></Guard>} />
         <Route path="/monthly-production-report" element={<Guard path="/monthly-production-report"><MonthlyProductionReportPage /></Guard>} />

@@ -318,3 +318,183 @@ export function salesCalc(v, { masters = {}, finishedCost = {} } = {}) {
     rows: { items },
   };
 }
+
+
+/**
+ * Belt Manufacturing Formulas & Calculations
+ */
+
+/**
+ * Determine roll division factor (2 or 3) from belt width (mm) or explicit setting.
+ * Width 84-105 mm: Division Factor = 3
+ * Width 106-150 mm: Division Factor = 2
+ * @param {number} width 
+ * @param {number} [explicitFactor] 
+ * @returns {number}
+ */
+export function getBeltDivisionFactor(width, explicitFactor) {
+  const ef = Number(explicitFactor);
+  if (ef === 2 || ef === 3) return ef;
+  const w = n(width);
+  if (w >= 84 && w <= 105) return 3;
+  if (w >= 106 && w <= 150) return 2;
+  return w <= 105 ? 3 : 2;
+}
+
+/**
+ * Formula 1: Required Roll (meters) = (Length in mm / 1000 * Production Quantity) / Division Factor
+ * @param {{ length: number, quantity: number, width?: number, divisionFactor?: number }} params 
+ * @returns {{ rollMeters: number, divisionFactor: number }}
+ */
+export function calculateRequiredRoll({ length, quantity, width, divisionFactor }) {
+  const factor = getBeltDivisionFactor(width, divisionFactor);
+  const l = n(length);
+  const qty = n(quantity);
+  const rollMeters = factor > 0 ? (l / 1000 * qty) / factor : 0;
+  return { rollMeters, divisionFactor: factor };
+}
+
+/**
+ * Formula 2: Production Quantity from Roll
+ * Production Quantity (PCS) = Available Roll (meters) * Division Factor * 1000 / Product Length (mm)
+ * @param {{ rollMeters: number, length: number, width?: number, divisionFactor?: number }} params 
+ * @returns {{ pcs: number, consumedRoll: number, remainingRoll: number, divisionFactor: number }}
+ */
+export function calculateProductionQtyFromRoll({ rollMeters, length, width, divisionFactor }) {
+  const factor = getBeltDivisionFactor(width, divisionFactor);
+  const roll = n(rollMeters);
+  const l = n(length);
+  if (!l || !factor) return { pcs: 0, consumedRoll: 0, remainingRoll: roll, divisionFactor: factor };
+  const pcs = Math.floor((roll * factor * 1000) / l);
+  const consumedRoll = (l / 1000 * pcs) / factor;
+  const remainingRoll = Math.max(0, roll - consumedRoll);
+  return { pcs, consumedRoll, remainingRoll, divisionFactor: factor };
+}
+
+/**
+ * Formula 3: Configurable Belt Components
+ * @param {{ quantity: number, holes?: number }} params 
+ */
+export function calculateBeltComponents({ quantity, holes }) {
+  const qty = n(quantity);
+  const h = n(holes);
+  return {
+    eyelets: h * 4 * qty,
+    rivets: h * 4 * qty,
+    aluminiumPatti: qty * 2,
+    aluminiumPattiRivets: qty * 4,
+  };
+}
+
+/**
+ * Live preview calculation for Belt Batch form across processes 1 to 4.
+ * Process 1: Roll Creation
+ * Process 2: Belt Sizing
+ * Process 3: Belt Finishing (if total_processes >= 3)
+ * Process 4: Charges (if total_processes = 4)
+ * @param {1|2|3|4} processStep 
+ * @param {object} v form values 
+ */
+export function beltBatchCalc(processStep, v) {
+  const qty = n(v.quantity || v.planned_quantity);
+  const length = n(v.length || v.belt_length);
+  const width = n(v.width || v.belt_width);
+  const factor = getBeltDivisionFactor(width, v.roll_division_factor);
+  const holes = n(v.holes || v.hole);
+
+  let carried = n(v.carried_cost);
+  let added = 0;
+
+  // Process 1 roll calculation
+  const rollCalc = calculateRequiredRoll({ length, quantity: qty, width, divisionFactor: factor });
+  const rollRequired = rollCalc.rollMeters;
+  const rollConsumed = v.roll_consumed !== undefined && v.roll_consumed !== '' ? n(v.roll_consumed) : rollRequired;
+  const rollAvailable = n(v.roll_available || v.available_roll);
+  const remainingRoll = Math.max(0, (rollAvailable > 0 ? rollAvailable : rollRequired) - rollConsumed);
+
+  // Material rows calculation
+  const items = (v.items || []).map((r) => {
+    const price = n(r.unit_price);
+    let perUnit = n(r.per_unit_utilization);
+
+    // If formula based calculation exists
+    if (r.formula === 'eyelets' || r.component_type === 'Eyelet') {
+      perUnit = holes * 4;
+    } else if (r.formula === 'rivets' || r.component_type === 'Rivet') {
+      perUnit = holes * 4;
+    } else if (r.formula === 'aluminium_patti' || r.component_type === 'Patti') {
+      perUnit = 2;
+    } else if (r.formula === 'patti_rivets' || r.component_type === 'Patti Rivet') {
+      perUnit = 4;
+    } else if (r.formula === 'roll') {
+      perUnit = factor > 0 ? (length / 1000) / factor : 0;
+    }
+
+    const estimatedTotal = perUnit * qty;
+    const actualQty = (r.actual_utilization !== undefined && r.actual_utilization !== '') ? n(r.actual_utilization) : estimatedTotal;
+    const amount = actualQty * price;
+
+    if (r.is_carried_in) {
+      carried += amount;
+    } else {
+      added += amount;
+    }
+
+    return {
+      ...r,
+      per_unit_utilization: perUnit,
+      total_utilization: estimatedTotal,
+      amount,
+      actual_amount: amount,
+    };
+  });
+
+  const rows = { items };
+
+  // Process 4 Charges calculation
+  let chargeTotal = 0;
+  if (processStep === 4 || v.total_processes === 4) {
+    rows.charges = (v.charges || []).map((c) => {
+      const rate = n(c.rate || c.per_unit_price);
+      let basisQty = qty;
+      if (c.calculation_basis === 'Per Meter') {
+        basisQty = rollConsumed;
+      } else if (c.calculation_basis === 'Fixed') {
+        basisQty = 1;
+      }
+      const amount = rate * basisQty;
+      chargeTotal += amount;
+      return {
+        ...c,
+        quantity: basisQty,
+        amount,
+      };
+    });
+    added += chargeTotal;
+  }
+
+  const rejectionPercent = n(v.rejection_percent);
+  const rejectionAmount = (carried + added) * (rejectionPercent / 100);
+  const batchTotal = carried + added + rejectionAmount;
+  const goodQty = rejectionPercent > 0 ? qty * (1 - rejectionPercent / 100) : qty;
+  const effectiveQty = goodQty > 0 ? goodQty : qty;
+  const unitCost = effectiveQty > 0 ? batchTotal / effectiveQty : 0;
+
+  const top = {
+    roll_division_factor: factor,
+    roll_required: Math.round(rollRequired * 100) / 100,
+    roll_consumed: Math.round(rollConsumed * 100) / 100,
+    remaining_roll: Math.round(remainingRoll * 100) / 100,
+    carried_cost: carried,
+    added_cost: added,
+    charge_total: chargeTotal,
+    rejection_amount: rejectionAmount,
+    batch_total: batchTotal,
+    unit_cost: unitCost,
+    cost_per_piece: unitCost,
+    accepted_quantity: Math.round(goodQty),
+    rejected_quantity: Math.round(qty - goodQty),
+  };
+
+  return { top, rows };
+}

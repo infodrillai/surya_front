@@ -3,7 +3,7 @@ import { useState } from 'react';
 import CrudPage from '../components/CrudPage';
 import { STAGE_CONFIGS } from '../config/resources';
 
-const LABELS = ['Stage 1 (Insert / Roll Creation)', 'Stage 2 (PU Casting / Belt Sizing)', 'Stage 3 (CNC / Belt Finishing)'];
+const LABELS = ['Stage 1 (Insert Making)', 'Stage 2 (PU Casting)', 'Stage 3 (CNC )'];
 
 export default function BatchPage() {
   const [tab, setTab] = useState(0);
