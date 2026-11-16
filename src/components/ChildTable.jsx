@@ -20,24 +20,28 @@ export default function ChildTable({ table, control, disabled, registry, setValu
 
   return (
     <Box>
-      <TableContainer sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}>
-        <Table size="small">
+      <TableContainer sx={{ border: 1, borderColor: 'divider', borderRadius: 2, maxWidth: '100%' }}>
+        <Table size="small" sx={{ width: '100%', '& .MuiTableCell-root': { px: 0.6, py: 0.5 } }}>
           <TableHead>
             <TableRow>
-              <TableCell width={40}>#</TableCell>
-              {visibleFields.map((f) => <TableCell key={f.name}>{f.label}</TableCell>)}
-              {canEdit && !table.noAdd && <TableCell width={48} />}
+              <TableCell width={36} sx={{ px: 0.5, py: 0.75 }}>#</TableCell>
+              {visibleFields.map((f) => (
+                <TableCell key={f.name} sx={{ px: 0.6, py: 0.75, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  {f.label}
+                </TableCell>
+              ))}
+              {canEdit && !table.noAdd && <TableCell width={40} sx={{ px: 0.5, py: 0.75 }} />}
             </TableRow>
           </TableHead>
           <TableBody>
             {fields.length === 0 && (
-              <TableRow><TableCell colSpan={visibleFields.length + 2}><Typography variant="body2" color="text.secondary">{table.empty || 'No rows yet.'}</Typography></TableCell></TableRow>
+              <TableRow><TableCell colSpan={visibleFields.length + 2} sx={{ px: 1.5, py: 2 }}><Typography variant="body2" color="text.secondary">{table.empty || 'No rows yet.'}</Typography></TableCell></TableRow>
             )}
             {fields.map((row, i) => (
               <TableRow key={row._key} hover>
-                <TableCell>{i + 1}</TableCell>
+                <TableCell sx={{ px: 0.5, py: 0.5 }}>{i + 1}</TableCell>
                 {visibleFields.map((f) => (
-                  <TableCell key={f.name} sx={{ py: 0.75 }}>
+                  <TableCell key={f.name} sx={{ py: 0.5, px: 0.6 }}>
                     <Field
                       f={{ ...f, readOnly: f.readOnly || f.readOnlyIf?.(rows[i] || {}) }}
                       name={`${table.name}.${i}.${f.name}`}

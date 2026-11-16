@@ -6,6 +6,7 @@ import {
   Dialog,
   DialogContent,
   DialogTitle,
+  Divider,
   IconButton,
   InputAdornment,
   Paper,
@@ -84,14 +85,12 @@ function normalizeDateStr(dt) {
 
 function getInitialMonthRange() {
   const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth() + 1;
-  const end = new Date(y, m, 0);
   const pad = (n) => String(n).padStart(2, '0');
-  return {
-    from: `${y}-${pad(m)}-01`,
-    to: `${y}-${pad(m)}-${pad(end.getDate())}`,
-  };
+  const to = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  // Default to 180 days back so both PU batches (October) and Belt batches (November) appear immediately
+  const past = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
+  const from = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-01`;
+  return { from, to };
 }
 
 function StatCard({ label, value, subtitle, icon: Icon, iconBg, iconColor }) {
@@ -157,6 +156,7 @@ export default function MonthlyProductionReportPage() {
   // Filters: From Date, To Date, Product Name, Product Code, Production Code
   const [fromDate, setFromDate] = useState(initialRange.from);
   const [toDate, setToDate] = useState(initialRange.to);
+  const [productTypeFilter, setProductTypeFilter] = useState('ALL'); // 'ALL' | 'PU' | 'Belt'
   const [productSearch, setProductSearch] = useState('');
   const [productCodeFilter, setProductCodeFilter] = useState('');
   const [productionCodeFilter, setProductionCodeFilter] = useState('');
@@ -200,18 +200,14 @@ export default function MonthlyProductionReportPage() {
     ],
     queryFn: async () => {
       if (isDateRangeInvalid) return { rows: [] };
-      try {
-        const res = await call('clssurya.api.get_monthly_production_report', {
-          from_date: fromDate || undefined,
-          to_date: toDate || undefined,
-          product: productSearch || undefined,
-          product_code: productCodeFilter || undefined,
-          production_code: productionCodeFilter || undefined,
-        });
-        return res || { rows: [] };
-      } catch (_) {
-        return { rows: [] };
-      }
+      const res = await call('clssurya.api.get_monthly_production_report', {
+        from_date: fromDate || undefined,
+        to_date: toDate || undefined,
+        product: productSearch || undefined,
+        product_code: productCodeFilter || undefined,
+        production_code: productionCodeFilter || undefined,
+      });
+      return res || { rows: [] };
     },
     enabled: !isDateRangeInvalid,
     staleTime: 10_000,
@@ -236,6 +232,12 @@ export default function MonthlyProductionReportPage() {
     staleTime: 30 * 1000,
   });
 
+  const { data: beltBatchesList = [], refetch: refetchBeltBatches } = useQuery({
+    queryKey: ['list', 'Belt Batch'],
+    queryFn: () => getList('Belt Batch').catch(() => []),
+    staleTime: 30 * 1000,
+  });
+
   const { data: serverInventory = [], refetch: refetchInv } = useQuery({
     queryKey: ['list', 'Inventory'],
     queryFn: () => getList('Inventory').catch(() => []),
@@ -248,11 +250,8 @@ export default function MonthlyProductionReportPage() {
     staleTime: 30 * 1000,
   });
 
-  const { data: dispatchItemsList = [], refetch: refetchDispItems } = useQuery({
-    queryKey: ['list', 'Dispatch Item'],
-    queryFn: () => getList('Dispatch Item').catch(() => []),
-    staleTime: 30 * 1000,
-  });
+  const dispatchItemsList = [];
+  const refetchDispItems = () => {};
 
   const { data: customerReturnsList = [], refetch: refetchReturns } = useQuery({
     queryKey: ['list', 'Customer Return'],
@@ -260,11 +259,8 @@ export default function MonthlyProductionReportPage() {
     staleTime: 30 * 1000,
   });
 
-  const { data: customerReturnItemsList = [], refetch: refetchReturnItems } = useQuery({
-    queryKey: ['list', 'Customer Return Item'],
-    queryFn: () => getList('Customer Return Item').catch(() => []),
-    staleTime: 30 * 1000,
-  });
+  const customerReturnItemsList = [];
+  const refetchReturnItems = () => {};
 
   const handleRefreshAll = () => {
     refetchDatewise();
@@ -272,6 +268,7 @@ export default function MonthlyProductionReportPage() {
     refetchStg1();
     refetchStg2();
     refetchStg3();
+    refetchBeltBatches();
     refetchInv();
     refetchDispatches();
     refetchDispItems();
@@ -389,7 +386,9 @@ export default function MonthlyProductionReportPage() {
 
     const addBatch = (b, stageNum, stageLabel) => {
       if (!b) return;
-      if (b.docstatus === 2 || b.status === 'Cancelled') return;
+      if (b.docstatus === 2) return;
+      // Belt Batch has no 'status' column, only is_completed; PU Stage batches have both
+      if (b.status === 'Cancelled') return;
       const isCompleted = b.is_completed === 1 || b.is_completed === true || b.status === 'Completed';
       if (!isCompleted) return;
 
@@ -414,6 +413,11 @@ export default function MonthlyProductionReportPage() {
     (stage1Batches || []).forEach((b) => addBatch(b, 1, 'Stage 1 – Insert Making'));
     (stage2Batches || []).forEach((b) => addBatch(b, 2, 'Stage 2 – PU & Casting'));
     (stage3Batches || []).forEach((b) => addBatch(b, 3, 'Stage 3 – CNC'));
+    (beltBatchesList || []).forEach((b) => {
+      const step = Number(b.process_step) || Number(String(b.stage || '').replace(/\D/g, '')) || 1;
+      const label = step === 1 ? 'Stage 1 – Roll Creation' : step === 2 ? 'Stage 2 – Roll Sizing' : step === 3 ? 'Stage 3 – Roll Finished' : 'Stage 4 – Charges';
+      addBatch(b, step, label);
+    });
 
     // 4. Aggregate batches into product rows
     const groups = {};
@@ -451,6 +455,7 @@ export default function MonthlyProductionReportPage() {
           stage1_qty: 0,
           stage2_qty: 0,
           stage3_qty: 0,
+          stage4_qty: 0,
           total_produced_qty: 0,
           finished_goods_qty: 0,
           dispatched_qty: 0,
@@ -494,6 +499,7 @@ export default function MonthlyProductionReportPage() {
       if (b.stage_num === 1) g.stage1_qty += qty;
       else if (b.stage_num === 2) g.stage2_qty += qty;
       else if (b.stage_num === 3) g.stage3_qty += qty;
+      else if (b.stage_num === 4) g.stage4_qty += qty;
 
       g.rejected_qty += rejQty;
       g.total_production_cost += netCost;
@@ -534,6 +540,7 @@ export default function MonthlyProductionReportPage() {
           stage1_qty: 0,
           stage2_qty: 0,
           stage3_qty: 0,
+          stage4_qty: 0,
           total_produced_qty: 0,
           finished_goods_qty: 0,
           dispatched_qty: dispQty,
@@ -569,6 +576,7 @@ export default function MonthlyProductionReportPage() {
           stage1_qty: 0,
           stage2_qty: 0,
           stage3_qty: 0,
+          stage4_qty: 0,
           total_produced_qty: 0,
           finished_goods_qty: 0,
           dispatched_qty: 0,
@@ -590,11 +598,23 @@ export default function MonthlyProductionReportPage() {
     result.forEach((g) => {
       const pId = g.product;
       const pCode = g.product_code;
+      const p = prodMap.get(pId) || prodMap.get(pCode) || {};
 
       // Rule 8: calculate total finished production from the final completed production stage
+      // For Belt products (4-stage), use highest non-zero stage working backwards from stage4
       const totalSteps = Number(g.total_steps || 3);
+      const isBeltProduct =
+        g.stage4_qty > 0 ||
+        g.batches?.some((b) => b.stage?.includes('Roll') || b.stage_label?.includes('Roll') || b.stage_label?.includes('Charges')) ||
+        p.finished_good_type === 'Belt' ||
+        String(pId).toLowerCase().includes('belt') ||
+        String(pCode).toLowerCase().includes('belt');
+      g.is_belt = Boolean(isBeltProduct);
       let totalProduced = 0;
-      if (totalSteps === 1) {
+      if (isBeltProduct) {
+        // Belt: use the last completed stage (4→3→2→1)
+        totalProduced = g.stage4_qty > 0 ? g.stage4_qty : (g.stage3_qty > 0 ? g.stage3_qty : (g.stage2_qty > 0 ? g.stage2_qty : g.stage1_qty));
+      } else if (totalSteps === 1) {
         totalProduced = g.stage1_qty;
       } else if (totalSteps === 2) {
         totalProduced = g.stage2_qty;
@@ -630,6 +650,7 @@ export default function MonthlyProductionReportPage() {
     stage1Batches,
     stage2Batches,
     stage3Batches,
+    beltBatchesList,
     dispatchesList,
     dispatchItemsList,
     customerReturnsList,
@@ -658,12 +679,14 @@ export default function MonthlyProductionReportPage() {
         const stage1Qty = Number(r.stage1_qty ?? 0);
         const stage2Qty = Number(r.stage2_qty ?? 0);
         const stage3Qty = Number(r.stage3_qty ?? 0);
+        const stage4Qty = Number(r.stage4_qty ?? 0);
         const totalSteps = Number(r.total_steps ?? p.total_steps ?? 3);
 
         // Rule 8: calculate total finished production from the final completed production stage
         let totalProduced = Number(r.total_produced_qty ?? r.finished_goods_qty ?? 0);
-        if (totalProduced === 0 && (stage1Qty > 0 || stage2Qty > 0 || stage3Qty > 0)) {
-          if (totalSteps === 1) totalProduced = stage1Qty;
+        if (totalProduced === 0 && (stage1Qty > 0 || stage2Qty > 0 || stage3Qty > 0 || stage4Qty > 0)) {
+          if (stage4Qty > 0) totalProduced = stage4Qty;
+          else if (totalSteps === 1) totalProduced = stage1Qty;
           else if (totalSteps === 2) totalProduced = stage2Qty;
           else totalProduced = stage3Qty;
         }
@@ -681,9 +704,17 @@ export default function MonthlyProductionReportPage() {
           product_name: r.product_name || p.product_name || prodId || '—',
           uom: r.uom || p.uom || 'PCS',
           total_steps: totalSteps,
+          is_belt: Boolean(
+            r.is_belt ||
+            p.finished_good_type === 'Belt' ||
+            prodId.toLowerCase().includes('belt') ||
+            stage4Qty > 0 ||
+            r.batches?.some((b) => b.stage?.includes('Roll') || b.stage_label?.includes('Roll') || b.stage_label?.includes('Charges'))
+          ),
           stage1_qty: stage1Qty,
           stage2_qty: stage2Qty,
           stage3_qty: stage3Qty,
+          stage4_qty: stage4Qty,
           total_produced_qty: totalProduced,
           finished_goods_qty: totalProduced,
           dispatched_qty: Number(r.dispatched_qty ?? r.total_dispatched_qty ?? 0),
@@ -704,6 +735,8 @@ export default function MonthlyProductionReportPage() {
   // Apply search/code filters
   const filteredRows = useMemo(() => {
     return allRows.filter((r) => {
+      if (productTypeFilter === 'PU' && r.is_belt) return false;
+      if (productTypeFilter === 'Belt' && !r.is_belt) return false;
       if (productSearch.trim()) {
         const q = productSearch.trim().toLowerCase();
         const pName = (r.product_name || r.product || '').toLowerCase();
@@ -722,13 +755,14 @@ export default function MonthlyProductionReportPage() {
       }
       return true;
     });
-  }, [allRows, productSearch, productCodeFilter, productionCodeFilter]);
+  }, [allRows, productSearch, productCodeFilter, productionCodeFilter, productTypeFilter]);
 
   // Overall totals across filtered rows
   const overall = useMemo(() => {
     let stage1Total = 0,
       stage2Total = 0,
       stage3Total = 0,
+      stage4Total = 0,
       totalProduced = 0,
       totalDispatched = 0,
       returnTotal = 0,
@@ -740,6 +774,7 @@ export default function MonthlyProductionReportPage() {
       stage1Total += Number(r.stage1_qty) || 0;
       stage2Total += Number(r.stage2_qty) || 0;
       stage3Total += Number(r.stage3_qty) || 0;
+      stage4Total += Number(r.stage4_qty) || 0;
       totalProduced += Number(r.total_produced_qty) || 0;
       totalDispatched += Number(r.dispatched_qty) || 0;
       returnTotal += Number(r.return_qty) || 0;
@@ -752,6 +787,7 @@ export default function MonthlyProductionReportPage() {
       stage1Total,
       stage2Total,
       stage3Total,
+      stage4Total,
       totalProduced,
       totalDispatched,
       returnTotal,
@@ -768,7 +804,75 @@ export default function MonthlyProductionReportPage() {
     return 'All Dates';
   }, [fromDate, toDate]);
 
-  const primaryUom = filteredRows[0]?.uom || 'PCS';
+  const uniqueUoms = useMemo(() => {
+    return [...new Set(filteredRows.map((r) => r.uom).filter(Boolean))];
+  }, [filteredRows]);
+
+  const primaryUom = useMemo(() => {
+    if (uniqueUoms.length === 1) return uniqueUoms[0];
+    const qtyProducts = filteredRows.filter(
+      (r) => (r.uom || '').toUpperCase() === 'QTY' || (r.uom || '').toUpperCase() === 'PCS'
+    );
+    if (qtyProducts.length > 0) return 'QTY';
+    return uniqueUoms[0] || 'QTY';
+  }, [uniqueUoms, filteredRows]);
+
+  const uomTotals = useMemo(() => {
+    let qtyProduced = 0, mtrProduced = 0;
+    let qtyDispatched = 0, mtrDispatched = 0;
+    let qtyReturned = 0, mtrReturned = 0;
+    let qtyStock = 0, mtrStock = 0;
+    let qtyStage1 = 0, mtrStage1 = 0;
+    let qtyStage2 = 0, mtrStage2 = 0;
+    let qtyStage3 = 0, mtrStage3 = 0;
+
+    filteredRows.forEach((r) => {
+      const u = (r.uom || '').toUpperCase();
+      const isMtr = u === 'MTR' || u === 'METER' || u === 'METERS';
+      const prod = Number(r.total_produced_qty) || 0;
+      const disp = Number(r.dispatched_qty) || 0;
+      const ret = Number(r.return_qty) || 0;
+      const stk = Number(r.available_stock) || 0;
+      const s1 = Number(r.stage1_qty) || 0;
+      const s2 = Number(r.stage2_qty) || 0;
+      const s3 = Number(r.stage3_qty) || 0;
+
+      if (isMtr) {
+        mtrProduced += prod;
+        mtrDispatched += disp;
+        mtrReturned += ret;
+        mtrStock += stk;
+        mtrStage1 += s1;
+        mtrStage2 += s2;
+        mtrStage3 += s3;
+      } else {
+        qtyProduced += prod;
+        qtyDispatched += disp;
+        qtyReturned += ret;
+        qtyStock += stk;
+        qtyStage1 += s1;
+        qtyStage2 += s2;
+        qtyStage3 += s3;
+      }
+    });
+
+    return {
+      qtyProduced,
+      mtrProduced,
+      qtyDispatched,
+      mtrDispatched,
+      qtyReturned,
+      mtrReturned,
+      qtyStock,
+      mtrStock,
+      qtyStage1,
+      mtrStage1,
+      qtyStage2,
+      mtrStage2,
+      qtyStage3,
+      mtrStage3,
+    };
+  }, [filteredRows]);
 
   // Export to CSV with all required columns
   const handleExportCSV = () => {
@@ -781,6 +885,7 @@ export default function MonthlyProductionReportPage() {
       'Stage 1 Produced Qty',
       'Stage 2 Produced Qty',
       'Stage 3 Produced Qty',
+      'Stage 4 Produced Qty (Belt)',
       'Total Produced Qty',
       'Total Dispatched Qty',
       'Return Qty',
@@ -797,6 +902,7 @@ export default function MonthlyProductionReportPage() {
       r.stage1_qty || 0,
       r.stage2_qty || 0,
       r.stage3_qty || 0,
+      r.stage4_qty || 0,
       r.total_produced_qty || 0,
       r.dispatched_qty || 0,
       r.return_qty || 0,
@@ -810,10 +916,11 @@ export default function MonthlyProductionReportPage() {
       'Total',
       '',
       '"Grand Total"',
-      `"${primaryUom}"`,
+      `"${uomTotals.mtrProduced > 0 && uomTotals.qtyProduced > 0 ? 'QTY + MTR' : primaryUom}"`,
       overall.stage1Total,
       overall.stage2Total,
       overall.stage3Total,
+      overall.stage4Total,
       overall.totalProduced,
       overall.totalDispatched,
       overall.returnTotal,
@@ -858,7 +965,7 @@ export default function MonthlyProductionReportPage() {
   const isLoading = serverQuery.isLoading || isDatewiseFetching;
 
   return (
-    <Box sx={{ pb: 6 }}>
+    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1600, mx: 'auto' }}>
       {/* Header */}
       <Stack
         direction={{ xs: 'column', md: 'row' }}
@@ -867,7 +974,7 @@ export default function MonthlyProductionReportPage() {
       >
         <Box>
           <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-            <Typography variant="h5" sx={{ fontWeight: 750, color: '#12262a' }}>
+            <Typography variant="h5" sx={{ fontWeight: 700, color: '#0f172a', letterSpacing: -0.3 }}>
               Monthly Production Report
             </Typography>
           </Stack>
@@ -927,6 +1034,14 @@ export default function MonthlyProductionReportPage() {
         </Alert>
       )}
 
+      {/* Backend API Error Alert */}
+      {serverQuery.isError && (
+        <Alert severity="error" sx={{ mb: 3, borderRadius: '10px' }}>
+          <strong>Error loading production report from server:</strong>{' '}
+          {serverQuery.error?.message || 'Server connection failed'}. Displaying locally synchronized offline data.
+        </Alert>
+      )}
+
       {/* 6 Summary Stat Cards */}
       <Box
         sx={{
@@ -943,48 +1058,108 @@ export default function MonthlyProductionReportPage() {
       >
         <StatCard
           label="Total Produced"
-          value={`${fmtNum(overall.totalProduced, 0)} ${primaryUom}`}
-          subtitle="Final completed output"
+          value={
+            uomTotals.qtyProduced > 0 && uomTotals.mtrProduced > 0
+              ? `${fmtNum(uomTotals.qtyProduced, 0)} QTY`
+              : uomTotals.qtyProduced > 0
+              ? `${fmtNum(uomTotals.qtyProduced, 0)} ${primaryUom}`
+              : `${fmtNum(uomTotals.mtrProduced, 0)} MTR`
+          }
+          subtitle={
+            uomTotals.qtyProduced > 0 && uomTotals.mtrProduced > 0
+              ? `+ ${fmtNum(uomTotals.mtrProduced, 0)} MTR (Roll)`
+              : uomTotals.qtyProduced > 0
+              ? 'Final completed output'
+              : 'Roll creation output'
+          }
           icon={CheckCircleOutlineRounded}
           iconBg="#ecfdf5"
           iconColor="#059669"
         />
         <StatCard
           label="Total Dispatched"
-          value={`${fmtNum(overall.totalDispatched, 0)} ${primaryUom}`}
-          subtitle="Confirmed dispatches"
+          value={
+            uomTotals.qtyDispatched > 0 && uomTotals.mtrDispatched > 0
+              ? `${fmtNum(uomTotals.qtyDispatched, 0)} QTY`
+              : `${fmtNum(overall.totalDispatched, 0)} ${primaryUom}`
+          }
+          subtitle={
+            uomTotals.qtyDispatched > 0 && uomTotals.mtrDispatched > 0
+              ? `+ ${fmtNum(uomTotals.mtrDispatched, 0)} MTR`
+              : 'Confirmed dispatches'
+          }
           icon={LocalShippingOutlined}
           iconBg="#eff6ff"
           iconColor="#2563eb"
         />
         <StatCard
           label="Total Returned"
-          value={`${fmtNum(overall.returnTotal, 0)} ${primaryUom}`}
-          subtitle="Customer returns"
+          value={
+            uomTotals.qtyReturned > 0 && uomTotals.mtrReturned > 0
+              ? `${fmtNum(uomTotals.qtyReturned, 0)} QTY`
+              : `${fmtNum(overall.returnTotal, 0)} ${primaryUom}`
+          }
+          subtitle={
+            uomTotals.qtyReturned > 0 && uomTotals.mtrReturned > 0
+              ? `+ ${fmtNum(uomTotals.mtrReturned, 0)} MTR`
+              : 'Customer returns'
+          }
           icon={AssignmentReturnOutlined}
           iconBg="#fffbeb"
           iconColor="#d97706"
         />
         <StatCard
           label="Stage 1 Produced"
-          value={`${fmtNum(overall.stage1Total, 0)} ${primaryUom}`}
-          subtitle="Insert making output"
+          value={
+            uomTotals.qtyStage1 > 0 && uomTotals.mtrStage1 > 0
+              ? `${fmtNum(uomTotals.qtyStage1, 0)} QTY`
+              : uomTotals.qtyStage1 > 0
+              ? `${fmtNum(uomTotals.qtyStage1, 0)} QTY`
+              : `${fmtNum(uomTotals.mtrStage1, 0)} MTR`
+          }
+          subtitle={
+            uomTotals.qtyStage1 > 0 && uomTotals.mtrStage1 > 0
+              ? `+ ${fmtNum(uomTotals.mtrStage1, 0)} MTR (Roll Creation)`
+              : uomTotals.qtyStage1 > 0
+              ? 'Insert making output'
+              : 'Roll creation output'
+          }
           icon={PrecisionManufacturingOutlined}
           iconBg="#eef2ff"
           iconColor="#4338ca"
         />
         <StatCard
           label="Stage 2 Produced"
-          value={`${fmtNum(overall.stage2Total, 0)} ${primaryUom}`}
-          subtitle="PU & casting output"
+          value={
+            uomTotals.qtyStage2 > 0 && uomTotals.mtrStage2 > 0
+              ? `${fmtNum(uomTotals.qtyStage2, 0)} QTY`
+              : uomTotals.qtyStage2 > 0
+              ? `${fmtNum(uomTotals.qtyStage2, 0)} QTY`
+              : `${fmtNum(overall.stage2Total, 0)} ${primaryUom}`
+          }
+          subtitle={
+            uomTotals.qtyStage2 > 0 && uomTotals.mtrStage2 > 0
+              ? `+ ${fmtNum(uomTotals.mtrStage2, 0)} MTR`
+              : 'PU casting & Roll sizing'
+          }
           icon={TuneOutlined}
           iconBg="#f5f3ff"
           iconColor="#6d28d9"
         />
         <StatCard
           label="Stage 3 Produced"
-          value={`${fmtNum(overall.stage3Total, 0)} ${primaryUom}`}
-          subtitle="CNC machining output"
+          value={
+            uomTotals.qtyStage3 > 0 && uomTotals.mtrStage3 > 0
+              ? `${fmtNum(uomTotals.qtyStage3, 0)} QTY`
+              : uomTotals.qtyStage3 > 0
+              ? `${fmtNum(uomTotals.qtyStage3, 0)} QTY`
+              : `${fmtNum(overall.stage3Total, 0)} ${primaryUom}`
+          }
+          subtitle={
+            uomTotals.qtyStage3 > 0 && uomTotals.mtrStage3 > 0
+              ? `+ ${fmtNum(uomTotals.mtrStage3, 0)} MTR`
+              : 'CNC & Roll finished output'
+          }
           icon={ElectricBoltOutlined}
           iconBg="#fffbeb"
           iconColor="#b45309"
@@ -1003,6 +1178,68 @@ export default function MonthlyProductionReportPage() {
         }}
       >
         <Stack spacing={1.5}>
+
+          {/* Quick Date Presets */}
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+            <Chip
+              label="This Month"
+              size="small"
+              onClick={() => {
+                const now = new Date();
+                const pad = (n) => String(n).padStart(2, '0');
+                const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                setFromDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`);
+                setToDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(end.getDate())}`);
+              }}
+              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+            />
+            <Chip
+              label="Last 3 Months"
+              size="small"
+              onClick={() => {
+                const now = new Date();
+                const pad = (n) => String(n).padStart(2, '0');
+                const past = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+                setFromDate(`${past.getFullYear()}-${pad(past.getMonth() + 1)}-01`);
+                setToDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
+              }}
+              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+            />
+            <Chip
+              label="All Records"
+              size="small"
+              onClick={() => {
+                setFromDate('');
+                setToDate('');
+              }}
+              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+            />
+            <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+            <Chip
+              label="All Products"
+              size="small"
+              color={productTypeFilter === 'ALL' ? 'primary' : 'default'}
+              variant={productTypeFilter === 'ALL' ? 'filled' : 'outlined'}
+              onClick={() => setProductTypeFilter('ALL')}
+              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+            />
+            <Chip
+              label="PU Products"
+              size="small"
+              color={productTypeFilter === 'PU' ? 'primary' : 'default'}
+              variant={productTypeFilter === 'PU' ? 'filled' : 'outlined'}
+              onClick={() => setProductTypeFilter('PU')}
+              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+            />
+            <Chip
+              label="Belt Products"
+              size="small"
+              color={productTypeFilter === 'Belt' ? 'primary' : 'default'}
+              variant={productTypeFilter === 'Belt' ? 'filled' : 'outlined'}
+              onClick={() => setProductTypeFilter('Belt')}
+              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+            />
+          </Stack>
 
           <Stack
             direction={{ xs: 'column', md: 'row' }}
@@ -1085,20 +1322,20 @@ export default function MonthlyProductionReportPage() {
       </Paper>
 
       {/* Product-wise Production Table */}
-      <Paper variant="outlined" sx={{ borderRadius: '14px', overflow: 'hidden', bgcolor: '#ffffff' }}>
-        <TableContainer sx={{ maxHeight: 720 }}>
+      <Paper variant="outlined" sx={{ borderRadius: '12px', overflow: 'hidden', bgcolor: '#ffffff' }}>
+        <TableContainer sx={{ maxHeight: 650 }}>
           <Table stickyHeader size="small">
             <TableHead>
               <TableRow
                 sx={{
                   '& th': {
-                    bgcolor: '#f8faf9',
-                    fontWeight: 750,
-                    color: '#1e293b',
+                    bgcolor: '#f8fafc',
+                    fontWeight: 700,
+                    color: '#475569',
                     whiteSpace: 'nowrap',
-                    py: 1,
+                    py: 1.25,
                     px: 0.75,
-                    fontSize: 12,
+                    fontSize: '0.75rem',
                   },
                 }}
               >
@@ -1119,6 +1356,10 @@ export default function MonthlyProductionReportPage() {
                 {/* 6. Stage 3 Produced Quantity */}
                 <TableCell align="center" sx={{ color: '#b45309', minWidth: 60, px: 0.5 }}>
                   Stage 3
+                </TableCell>
+                {/* 6b. Stage 4 Produced Quantity (Belt) */}
+                <TableCell align="center" sx={{ color: '#0284c7', minWidth: 60, px: 0.5 }}>
+                  Stage 4
                 </TableCell>
                 {/* 7. Total Produced Quantity */}
                 <TableCell
@@ -1226,23 +1467,43 @@ export default function MonthlyProductionReportPage() {
                       </TableCell>
 
                       {/* 3. Product Name */}
-                      <TableCell sx={{ fontWeight: 750, color: '#12262a', minWidth: 140, px: 0.75 }}>
-                        {row.product_name || row.product}
+                      <TableCell sx={{ fontWeight: 750, color: '#12262a', minWidth: 160, px: 0.75 }}>
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                          <span>{row.product_name || row.product}</span>
+                          <Chip
+                            label={row.is_belt ? 'Belt' : 'PU'}
+                            size="small"
+                            color={row.is_belt ? 'secondary' : 'primary'}
+                            variant="outlined"
+                            sx={{ height: 20, fontSize: 10, fontWeight: 700 }}
+                          />
+                          <Chip
+                            label={row.uom || (row.is_belt && String(row.product_code || row.product).includes('ROLL') ? 'MTR' : 'QTY')}
+                            size="small"
+                            variant="outlined"
+                            sx={{ height: 20, fontSize: 10, fontWeight: 700, color: '#475569', borderColor: '#cbd5e1' }}
+                          />
+                        </Stack>
                       </TableCell>
 
                       {/* 4. Stage 1 Produced Quantity */}
                       <TableCell align="center" sx={{ fontWeight: 700, fontSize: 12.5, color: '#4338ca', px: 0.5 }}>
-                        {fmtNum(row.stage1_qty, 2)}
+                        {fmtNum(row.stage1_qty, 3)}
                       </TableCell>
 
                       {/* 5. Stage 2 Produced Quantity */}
                       <TableCell align="center" sx={{ fontWeight: 700, fontSize: 12.5, color: '#6d28d9', px: 0.5 }}>
-                        {fmtNum(row.stage2_qty, 2)}
+                        {fmtNum(row.stage2_qty, 3)}
                       </TableCell>
 
                       {/* 6. Stage 3 Produced Quantity */}
                       <TableCell align="center" sx={{ fontWeight: 700, fontSize: 12.5, color: '#b45309', px: 0.5 }}>
-                        {fmtNum(row.stage3_qty, 2)}
+                        {fmtNum(row.stage3_qty, 3)}
+                      </TableCell>
+
+                      {/* 6b. Stage 4 Produced Quantity (Belt) */}
+                      <TableCell align="center" sx={{ fontWeight: 700, fontSize: 12.5, color: '#0284c7', px: 0.5 }}>
+                        {row.stage4_qty > 0 ? fmtNum(row.stage4_qty, 3) : (row.is_belt ? '0' : '—')}
                       </TableCell>
 
                       {/* 7. Total Produced Quantity */}
@@ -1256,7 +1517,7 @@ export default function MonthlyProductionReportPage() {
                           px: 0.5,
                         }}
                       >
-                        {fmtNum(row.total_produced_qty, 2)}
+                        {fmtNum(row.total_produced_qty, 3)}
                       </TableCell>
 
                       {/* 8. Total Dispatched/Sold Quantity */}
@@ -1270,7 +1531,7 @@ export default function MonthlyProductionReportPage() {
                           px: 0.5,
                         }}
                       >
-                        {fmtNum(row.dispatched_qty, 2)}
+                        {fmtNum(row.dispatched_qty, 3)}
                       </TableCell>
 
                       {/* 9. Return Quantity */}
@@ -1284,7 +1545,7 @@ export default function MonthlyProductionReportPage() {
                           px: 0.5,
                         }}
                       >
-                        {fmtNum(row.return_qty, 2)}
+                        {fmtNum(row.return_qty, 3)}
                       </TableCell>
 
                       {/* 10. Remaining Available Inventory */}
@@ -1298,7 +1559,7 @@ export default function MonthlyProductionReportPage() {
                           px: 0.5,
                         }}
                       >
-                        {fmtNum(row.available_stock, 2)}
+                        {fmtNum(row.available_stock, 3)}
                       </TableCell>
 
                       {/* 11. Rejected Qty */}
@@ -1311,12 +1572,12 @@ export default function MonthlyProductionReportPage() {
                           px: 0.5,
                         }}
                       >
-                        {fmtNum(row.rejected_qty, 2)}
+                        {fmtNum(row.rejected_qty, 3)}
                       </TableCell>
 
                       {/* 12. Total Production Cost */}
                       <TableCell align="right" sx={{ fontWeight: 800, color: '#0f766e', fontSize: 13, whiteSpace: 'nowrap', px: 0.75 }}>
-                        {fmtMoney(row.total_production_cost, 2)}
+                        {fmtMoney(row.total_production_cost, 3)}
                       </TableCell>
                     </TableRow>
                   );
@@ -1333,31 +1594,34 @@ export default function MonthlyProductionReportPage() {
                     Grand Total
                   </TableCell>
                   <TableCell align="center" sx={{ color: '#4338ca', fontSize: 13, px: 0.5 }}>
-                    {fmtNum(overall.stage1Total, 2)}
+                    {fmtNum(overall.stage1Total, 3)}
                   </TableCell>
                   <TableCell align="center" sx={{ color: '#6d28d9', fontSize: 13, px: 0.5 }}>
-                    {fmtNum(overall.stage2Total, 2)}
+                    {fmtNum(overall.stage2Total, 3)}
                   </TableCell>
                   <TableCell align="center" sx={{ color: '#b45309', fontSize: 13, px: 0.5 }}>
-                    {fmtNum(overall.stage3Total, 2)}
+                    {fmtNum(overall.stage3Total, 3)}
+                  </TableCell>
+                  <TableCell align="center" sx={{ color: '#0284c7', fontSize: 13, px: 0.5 }}>
+                    {fmtNum(overall.stage4Total, 3)}
                   </TableCell>
                   <TableCell align="center" sx={{ color: '#059669', bgcolor: '#dcfce7 !important', fontSize: 13.5, px: 0.5 }}>
-                    {fmtNum(overall.totalProduced, 2)}
+                    {fmtNum(overall.totalProduced, 3)}
                   </TableCell>
                   <TableCell align="center" sx={{ color: '#1d4ed8', bgcolor: '#dbeafe !important', fontSize: 13.5, px: 0.5 }}>
-                    {fmtNum(overall.totalDispatched, 2)}
+                    {fmtNum(overall.totalDispatched, 3)}
                   </TableCell>
                   <TableCell align="center" sx={{ color: '#d97706', bgcolor: '#fef3c7 !important', fontSize: 13.5, px: 0.5 }}>
-                    {fmtNum(overall.returnTotal, 2)}
+                    {fmtNum(overall.returnTotal, 3)}
                   </TableCell>
                   <TableCell align="center" sx={{ color: '#0f766e', bgcolor: '#ccfbf1 !important', fontSize: 13.5, px: 0.5 }}>
-                    {fmtNum(overall.availableStock, 2)}
+                    {fmtNum(overall.availableStock, 3)}
                   </TableCell>
                   <TableCell align="center" sx={{ color: '#dc2626', fontSize: 13, px: 0.5 }}>
-                    {fmtNum(overall.rejectedTotal, 2)}
+                    {fmtNum(overall.rejectedTotal, 3)}
                   </TableCell>
                   <TableCell align="right" sx={{ color: '#0f766e', fontSize: 13.5, whiteSpace: 'nowrap', fontWeight: 800, px: 0.75 }}>
-                    {fmtMoney(overall.costTotal, 2)}
+                    {fmtMoney(overall.costTotal, 3)}
                   </TableCell>
                 </TableRow>
               </TableFooter>
@@ -1480,7 +1744,7 @@ export default function MonthlyProductionReportPage() {
                 AVAILABLE STOCK
               </Typography>
               <Typography variant="subtitle1" sx={{ fontWeight: 800, color: '#0f766e' }}>
-                {fmtNum(drilldownRow?.available_stock, 2)} {drilldownRow?.uom}
+                {fmtNum(drilldownRow?.available_stock, 3)} {drilldownRow?.uom}
               </Typography>
             </Box>
           </Paper>
@@ -1653,7 +1917,7 @@ export default function MonthlyProductionReportPage() {
               <Box sx={{ textAlign: 'center' }}>
                 <Typography variant="caption" color="text.secondary">Finished Goods Warehouse</Typography>
                 <Typography variant="h6" sx={{ fontWeight: 800, color: '#059669' }}>
-                  {fmtNum(drilldownRow?.available_stock, 2)} {drilldownRow?.uom}
+                  {fmtNum(drilldownRow?.available_stock, 3)} {drilldownRow?.uom}
                 </Typography>
               </Box>
               <Box sx={{ textAlign: 'center' }}>

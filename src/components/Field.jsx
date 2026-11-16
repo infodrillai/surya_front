@@ -54,8 +54,24 @@ function LinkInput({ f, rf, error, disabled, options, labels, rowPath, setValue,
       onChange={handleChange}
       getOptionLabel={(o) => labels[o] ?? o}
       isOptionEqualToValue={(a, b) => a === b}
-      renderInput={(p) => <TextField {...p} label={f.label} error={!!error} helperText={error?.message} />}
-      sx={{ minWidth: f.minWidth ?? 170 }}
+      renderInput={(p) => (
+        <TextField
+          {...p}
+          label={f.label}
+          error={!!error}
+          helperText={error?.message}
+          title={labels[rf.value] ?? rf.value ?? ''}
+        />
+      )}
+      sx={{
+        minWidth: f.minWidth ?? 170,
+        width: '100%',
+        '& .MuiAutocomplete-endAdornment': disabled ? { display: 'none' } : undefined,
+        '& .MuiInputBase-input': {
+          fontSize: '0.82rem',
+          textOverflow: 'ellipsis',
+        },
+      }}
     />
   );
 }

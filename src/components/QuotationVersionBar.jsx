@@ -3,6 +3,7 @@ import { Alert, Button, Chip, Stack } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import PostAddIcon from '@mui/icons-material/PostAdd';
+import { useQueryClient } from '@tanstack/react-query';
 import { getList, runAction } from '../api/client';
 
 /**
@@ -17,26 +18,54 @@ export const openQuotation = (name) => {
 };
 
 export default function QuotationVersionBar({ doc }) {
+  const qc = useQueryClient();
   const name = doc?.name;
   const [allList, setAllList] = React.useState([]);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
 
-  // Always fetch from server to get previous_version + parent_quotation.
-  // Re-runs when doc name, version or modified changes (catches just-created revision).
+  // Fetch or retrieve quotation list.
+  // Checks React Query's ['list', 'Quotation'] first (already loaded by CrudPage).
+  // Falls back to getList('Quotation') without requesting custom fields that might not exist in Frappe.
   React.useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const list = await getList('Quotation', {
-          fields: ['name', 'creation', 'version', 'status', 'previous_version', 'parent_quotation'],
-          orderBy: 'name asc',
-          limit: 1000,
-        });
+        let list = qc.getQueryData(['list', 'Quotation']);
+        if (!Array.isArray(list) || list.length === 0) {
+          try {
+            list = await getList('Quotation', { limit: 1000 });
+          } catch (_) {
+            list = await getList('Quotation', {
+              fields: ['name', 'creation', 'modified', 'status'],
+              limit: 1000,
+            }).catch(() => []);
+          }
+        }
         if (!alive) return;
-        if (Array.isArray(list) && list.length > 0) {
-          // Sort by name (QTN-00001, QTN-00002, …) for stable prev/next order
-          const sorted = [...list].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+        let items = Array.isArray(list) ? [...list] : [];
+        // Ensure the currently viewed doc is always present in the list
+        if (doc?.name && !items.some((q) => q.name === doc.name)) {
+          items.push({
+            name: doc.name,
+            version: doc?.version,
+            status: doc?.status,
+            previous_version: doc?.previous_version,
+            parent_quotation: doc?.parent_quotation,
+            creation: doc?.creation,
+            modified: doc?.modified,
+          });
+        }
+
+        if (items.length > 0) {
+          // Natural sort by name (e.g. QTN-00001, QTN-00002, …) for stable prev/next order
+          const sorted = [...items].sort((a, b) =>
+            String(a.name || '').localeCompare(String(b.name || ''), undefined, {
+              numeric: true,
+              sensitivity: 'base',
+            })
+          );
           setAllList(sorted);
         } else if (doc?.name) {
           setAllList([{ name: doc.name, version: doc?.version, status: doc?.status }]);
@@ -48,35 +77,7 @@ export default function QuotationVersionBar({ doc }) {
       }
     })();
     return () => { alive = false; };
-  }, [name, doc?.version, doc?.modified]);
-
-  // Find the direct revision of this doc (the quotation that superseded it)
-  const revisionNext = allList.find(
-    (q) => q.previous_version === name || q.parent_quotation === name
-  )?.name || null;
-
-  // For a Superseded doc, also check doc.superseded_by or any other hint the server returns
-  const supersededBy = doc?.superseded_by || null;
-
-  // Name-order neighbours — only used as prev/next for unrelated navigation (not version chain)
-  const idx = name ? allList.findIndex((q) => q.name === name) : -1;
-  const listPrev = idx > 0 ? allList[idx - 1]?.name : null;
-  const listNext = idx >= 0 && idx < allList.length - 1 ? allList[idx + 1]?.name : null;
-
-  // Prefer explicit version-chain links for prev; name-order neighbour otherwise
-  const prevQuotation = doc?.previous_version || doc?.parent_quotation || listPrev;
-
-  // For next: revision child takes priority (especially for Superseded docs).
-  // Fall back to name-order only when there is NO version-chain link at all.
-  const versionNext = revisionNext || supersededBy;
-  const nextQuotation = versionNext || listNext;
-
-  // True when navigating "next" means opening the revision (shown with a distinct label)
-  const isSuperseded = doc?.status === 'Superseded';
-
-  const status = doc?.status;
-  // Allow revise only if no revision exists yet and not already locked
-  const canRevise = name && !versionNext && !['Superseded', 'Accepted'].includes(status);
+  }, [name, doc?.version, doc?.modified, qc]);
 
   // Build the full version family by walking the chain from the root
   const family = React.useMemo(() => {
@@ -91,18 +92,72 @@ export default function QuotationVersionBar({ doc }) {
       return docName;
     };
     const docParent = doc?.previous_version || doc?.parent_quotation;
-    const root = docParent ? findRoot(docParent) : findRoot(name);
+    const root = (docParent && docParent !== name) ? findRoot(docParent) : findRoot(name);
     const chain = new Set();
     const addChain = (n) => {
       if (!n || chain.has(n)) return;
       chain.add(n);
       allList
-        .filter((q) => q.previous_version === n || q.parent_quotation === n)
+        .filter((q) => q.name !== n && (q.previous_version === n || q.parent_quotation === n))
         .forEach((q) => addChain(q.name));
     };
     addChain(root);
-    return allList.filter((q) => chain.has(q.name));
+    const inChain = allList.filter((q) => chain.has(q.name));
+    return inChain.sort((a, b) => {
+      if (a.version != null && b.version != null && a.version !== b.version) {
+        return Number(a.version) - Number(b.version);
+      }
+      return String(a.name || '').localeCompare(String(b.name || ''), undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+    });
   }, [allList, name, doc]);
+
+  // Direct revision of this doc (the quotation that superseded it)
+  const revisionNext = allList.find(
+    (q) => q.name !== name && (q.previous_version === name || q.parent_quotation === name)
+  )?.name || null;
+
+  const supersededBy = (doc?.superseded_by && doc.superseded_by !== name) ? doc.superseded_by : null;
+
+  // Name-order neighbours in the full quotations list
+  const idx = name ? allList.findIndex((q) => q.name === name) : -1;
+  const listPrev = idx > 0 ? allList[idx - 1]?.name : null;
+  const listNext = idx >= 0 && idx < allList.length - 1 ? allList[idx + 1]?.name : null;
+
+  // Version family neighbours if this doc belongs to a multi-version family
+  const famIdx = family.length > 1 ? family.findIndex((q) => q.name === name) : -1;
+  const familyPrev = famIdx > 0 ? family[famIdx - 1]?.name : null;
+  const familyNext = (famIdx >= 0 && famIdx < family.length - 1) ? family[famIdx + 1]?.name : null;
+
+  // Resolve previous quotation:
+  // 1. Previous version in the revision family
+  // 2. Explicit doc.previous_version or doc.parent_quotation
+  // 3. Name-order neighbour in the general quotation list
+  let prevQuotation = familyPrev;
+  if (!prevQuotation && doc?.previous_version && doc.previous_version !== name) {
+    prevQuotation = doc.previous_version;
+  }
+  if (!prevQuotation && doc?.parent_quotation && doc.parent_quotation !== name) {
+    prevQuotation = doc.parent_quotation;
+  }
+  if (!prevQuotation) {
+    prevQuotation = listPrev;
+  }
+  if (prevQuotation === name) prevQuotation = null;
+
+  // Resolve next quotation:
+  // 1. Next revision in the version family
+  // 2. Direct revision child (revisionNext)
+  // 3. doc.superseded_by
+  // 4. Name-order neighbour in the general quotation list (listNext)
+  let nextQuotation = familyNext || (revisionNext && revisionNext !== name ? revisionNext : null) || (supersededBy && supersededBy !== name ? supersededBy : null) || listNext;
+  if (nextQuotation === name) nextQuotation = null;
+
+  const isSuperseded = doc?.status === 'Superseded';
+  const status = doc?.status;
+  const canRevise = name && !familyNext && !revisionNext && !supersededBy && !['Superseded', 'Accepted'].includes(status);
 
   const revise = async () => {
     if (!window.confirm(`Create a new version from ${name}? The original version will remain read-only.`)) return;
@@ -125,17 +180,8 @@ export default function QuotationVersionBar({ doc }) {
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           {name && (
             <Chip size="small" color="info" variant="outlined" label={`Version ${doc?.version || 1}`} sx={{ fontWeight: 600 }} />
-          )}
-          {isSuperseded && versionNext && (
-            <Chip
-              size="small"
-              color="warning"
-              variant="outlined"
-              label={`Superseded → ${versionNext}`}
-              sx={{ fontWeight: 600, cursor: 'pointer' }}
-              onClick={() => openQuotation(versionNext)}
-            />
-          )}
+         )}
+          
           {canRevise && (
             <Button size="small" variant="contained" startIcon={<PostAddIcon />} disabled={busy} onClick={revise} sx={{ textTransform: 'none' }}>
               Revise Quotation
@@ -157,34 +203,19 @@ export default function QuotationVersionBar({ doc }) {
           </Button>
           <Button
             size="small"
-            variant={isSuperseded && versionNext ? 'contained' : 'outlined'}
-            color={isSuperseded && versionNext ? 'primary' : 'inherit'}
+            variant={isSuperseded && nextQuotation ? 'contained' : 'outlined'}
+            color={isSuperseded && nextQuotation ? 'primary' : 'inherit'}
             endIcon={<ArrowForwardIcon />}
             disabled={!nextQuotation}
             onClick={() => nextQuotation && openQuotation(nextQuotation)}
             sx={{ textTransform: 'none', fontWeight: 600 }}
           >
-            {isSuperseded && versionNext ? `Open Revision (${versionNext})` : 'Next Quotation'}
+            {isSuperseded && (familyNext || revisionNext)
+              ? `Next Quotation (${familyNext || revisionNext})`
+              : 'Next Quotation'}
           </Button>
         </Stack>
       </Stack>
-
-      {/* Version family chips */}
-      {family.length > 1 && (
-        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-          {family.map((q) => (
-            <Chip
-              key={q.name}
-              size="small"
-              clickable={q.name !== name}
-              color={q.name === name ? 'primary' : 'default'}
-              variant={q.name === name ? 'filled' : 'outlined'}
-              label={`v${q.version || 1} · ${q.name} · ${q.status || 'Draft'}`}
-              onClick={q.name === name ? undefined : () => openQuotation(q.name)}
-            />
-          ))}
-        </Stack>
-      )}
 
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
     </Stack>

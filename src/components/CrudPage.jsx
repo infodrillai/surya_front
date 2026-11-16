@@ -123,7 +123,9 @@ export default function CrudPage({ config, embedded = false }) {
             setEditing(null);
             setTimeout(() => setEditing(doc), 0);
           }
-        } catch (_) {}
+        } catch (err) {
+          notify(`Could not open ${e.detail.name}: ${err?.message || err}`, 'error');
+        }
       }
     };
     window.addEventListener('surya:open-doc', handleOpen);
@@ -152,7 +154,7 @@ export default function CrudPage({ config, embedded = false }) {
   }, [searchParams, config.doctype]);
 
   return (
-    <Box>
+    <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2.5, alignItems: { sm: 'center' }, justifyContent: 'space-between' }}>
         <Box>
           {!embedded && <Typography variant="h5">{config.plural || `${config.title}s`}</Typography>}

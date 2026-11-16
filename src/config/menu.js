@@ -15,53 +15,104 @@ import WarehouseIcon from '@mui/icons-material/WarehouseOutlined';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import LayersIcon from '@mui/icons-material/LayersOutlined';
 import AssessmentIcon from '@mui/icons-material/AssessmentOutlined';
+import ManageAccountsIcon from '@mui/icons-material/ManageAccountsOutlined';
+import BadgeIcon from '@mui/icons-material/BadgeOutlined';
+import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
+import AnalyticsIcon from '@mui/icons-material/AnalyticsOutlined';
+import SpaceDashboardIcon from '@mui/icons-material/SpaceDashboardOutlined';
 
-const STORE = 'CS Store', PROD = 'CS Production', SALES = 'CS Sales';
+const ADMIN = 'CS Admin', STORE = 'CS Store', PROD = 'CS Production', SALES = 'CS Sales', SALES_PERSON = 'Sales Person';
 
-/** roles omitted = everyone; admins always see everything. Route guards use the same list. */
-export const MENU = [
-    {
-        section: 'Master',
-        items: [
-            { label: 'Currencies', path: '/quotation-currency', icon: TuneIcon, roles: [SALES] },
-            { label: 'Competitor companies', path: '/competitor-company', icon: TuneIcon, roles: [SALES] },
-            { label: 'Product codes', path: '/product-code-mapping', icon: TuneIcon, roles: [SALES] },
-            { label: 'UOM', path: '/uom', icon: StraightenIcon },
-            { label: 'Product', path: '/product', icon: Inventory2Icon },
-            { label: 'Category', path: '/category', icon: CategoryIcon },
-            { label: 'Process', path: '/process', icon: TuneIcon, roles: [STORE, PROD] },
-            { label: 'Purchase', path: '/purchase', icon: ShoppingCartIcon, roles: [STORE] },
-            { label: 'Quotation', path: '/quotation', icon: RequestQuoteIcon, roles: [SALES] },
-            { label: 'Sales Order', path: '/sales-order', icon: ReceiptIcon, roles: [SALES, STORE] },
-        ],
-    },
-    {
-        section: 'Production',
-        items: [
-            { label: 'PU Batch', path: '/batch', icon: FactoryIcon, roles: [PROD] },
-            { label: 'Belt Batch', path: '/belt-batch', icon: LayersIcon, roles: [PROD] },
-        ],
-    },
-    {
-        section: 'Supporting',
-        items: [
-            { label: 'Vendor', path: '/vendor', icon: HandshakeIcon, roles: [STORE, PROD] },
-            { label: 'Customer', path: '/customer', icon: PeopleIcon, roles: [SALES, STORE] },
-            { label: 'Outstanding', path: '/customer-outstanding', icon: AccountBalanceWalletIcon, roles: [SALES, STORE] },
-            { label: 'Charge', path: '/charge', icon: DescriptionIcon, roles: [PROD] },
-            { label: 'Inventory', path: '/inventory', icon: WarehouseIcon, roles: [STORE, PROD] },
-            { label: 'Dispatch', path: '/dispatch', icon: LocalShippingIcon, roles: [STORE, SALES] },
-            { label: 'Goods Receipt', path: '/goods-receipt', icon: ReceiptIcon, roles: [STORE] },
-            { label: 'Returns', path: '/customer-return', icon: ReceiptIcon, roles: [STORE, SALES] },
-        ],
-    },
-    {
-        section: 'Report',
-        items: [
-            { label: 'Pending Order Analysis', path: '/pending-order-analysis', icon: ReceiptIcon, roles: [STORE, PROD] },
-            { label: 'Monthly Production Report', path: '/monthly-production-report', icon: CalendarMonthIcon, roles: [STORE, PROD] },
-            { label: 'Machine-wise Production & Time-Tracking', path: '/machine-time-report', icon: CalendarMonthIcon, roles: [STORE, PROD] },
-            { label: 'Belt Production Reports', path: '/belt-production-report', icon: AssessmentIcon, roles: [STORE, PROD] },
-        ]
-    }
+/**
+ * Administrator Menu - Full ERP access
+ */
+export const ADMIN_MENU = [
+  {
+    section: 'Administration',
+    items: [
+      { label: 'User Management', path: '/user-management', icon: ManageAccountsIcon, roles: [ADMIN] },
+      { label: 'Sales Persons', path: '/sales-person', icon: BadgeIcon, roles: [ADMIN] },
+    ],
+  },
+  {
+    section: 'Master',
+    items: [
+      { label: 'Currencies', path: '/quotation-currency', icon: TuneIcon },
+      { label: 'Competitor companies', path: '/competitor-company', icon: TuneIcon },
+      { label: 'Product codes', path: '/product-code-mapping', icon: TuneIcon },
+      { label: 'UOM', path: '/uom', icon: StraightenIcon },
+      { label: 'Product', path: '/product', icon: Inventory2Icon },
+      { label: 'Category', path: '/category', icon: CategoryIcon },
+      { label: 'Process', path: '/process', icon: TuneIcon },
+      { label: 'Purchase', path: '/purchase', icon: ShoppingCartIcon },
+      { label: 'Quotation', path: '/quotation', icon: RequestQuoteIcon },
+      { label: 'Sales Order', path: '/sales-order', icon: ReceiptIcon },
+    ],
+  },
+  {
+    section: 'Production',
+    items: [
+      { label: 'PU Batch', path: '/batch', icon: FactoryIcon },
+      { label: 'Belt Batch', path: '/belt-batch', icon: LayersIcon },
+    ],
+  },
+  {
+    section: 'Supporting',
+    items: [
+      { label: 'Vendor', path: '/vendor', icon: HandshakeIcon },
+      { label: 'Customer', path: '/customer', icon: PeopleIcon },
+      { label: 'Outstanding', path: '/customer-outstanding', icon: AccountBalanceWalletIcon },
+      { label: 'Charge', path: '/charge', icon: DescriptionIcon },
+      { label: 'Inventory', path: '/inventory', icon: WarehouseIcon },
+      { label: 'Dispatch', path: '/dispatch', icon: LocalShippingIcon },
+      { label: 'Goods Receipt', path: '/goods-receipt', icon: ReceiptIcon },
+      { label: 'Returns', path: '/customer-return', icon: ReceiptIcon },
+    ],
+  },
+  {
+    section: 'Report',
+    items: [
+      { label: 'Sales Reports', path: '/sales-reports', icon: AnalyticsIcon },
+      { label: 'Pending Order Analysis', path: '/pending-order-analysis', icon: ReceiptIcon },
+      { label: 'Pending Dispatch Analysis', path: '/pending-dispatch-analysis', icon: LocalShippingIcon },
+      { label: 'Purchase & Selling Price Analysis', path: '/price-analysis', icon: AssessmentIcon },
+      { label: 'Monthly Production Report', path: '/monthly-production-report', icon: CalendarMonthIcon },
+      { label: 'Belt Production Reports', path: '/belt-production-report', icon: AssessmentIcon },
+    ],
+  },
 ];
+
+/**
+ * Sales Person Menu - Focused Sales Operations
+ */
+export const SALES_MENU = [
+  {
+    section: 'Sales Workspace',
+    items: [
+      { label: 'Sales Dashboard', path: '/', icon: SpaceDashboardIcon, roles: [SALES_PERSON, SALES] },
+      { label: 'My Customers', path: '/customer', icon: PeopleIcon, roles: [SALES_PERSON, SALES] },
+      { label: 'My Quotations', path: '/quotation', icon: RequestQuoteIcon, roles: [SALES_PERSON, SALES] },
+      { label: 'My Sales Orders', path: '/sales-order', icon: ReceiptIcon, roles: [SALES_PERSON, SALES] },
+      { label: 'Dispatch Tracking', path: '/dispatch', icon: LocalShippingIcon, roles: [SALES_PERSON, SALES] },
+      { label: 'Pending Dispatch Analysis', path: '/pending-dispatch-analysis', icon: LocalShippingIcon, roles: [SALES_PERSON, SALES] },
+      { label: 'Price Analysis', path: '/price-analysis', icon: AssessmentIcon, roles: [SALES_PERSON, SALES] },
+      { label: 'Customer Returns', path: '/customer-return', icon: ReceiptIcon, roles: [SALES_PERSON, SALES] },
+      { label: 'Sales Reports', path: '/sales-reports', icon: AnalyticsIcon, roles: [SALES_PERSON, SALES] },
+      { label: 'Monthly Production Report', path: '/monthly-production-report', icon: CalendarMonthIcon, roles: [SALES_PERSON, SALES] },
+      { label: 'My Profile', path: '/my-profile', icon: PersonOutlineIcon, roles: [SALES_PERSON, SALES] },
+    ],
+  },
+];
+
+/**
+ * Returns active menu structure based on user role
+ */
+export function getMenu(isAdmin, isSalesPerson) {
+  if (isSalesPerson && !isAdmin) {
+    return SALES_MENU;
+  }
+  return ADMIN_MENU;
+}
+
+// Default export/named export for backwards compatibility
+export const MENU = ADMIN_MENU;

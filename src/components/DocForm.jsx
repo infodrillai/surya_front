@@ -1,5 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, Tab, Tabs, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Paper, Stack, Tab, Tabs, Typography } from '@mui/material';
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
@@ -258,8 +259,21 @@ export default function DocForm({ config, doc, open, onClose }) {
     );
   };
 
+  const isBatch = Boolean(
+    config.fullScreen ||
+    config.doctype?.includes('Stage') ||
+    config.doctype?.includes('Belt Batch')
+  );
+
   return (
-    <Dialog open={open} onClose={busy ? undefined : cancel} fullWidth maxWidth="lg" scroll="paper">
+    <Dialog
+      open={open}
+      onClose={busy ? undefined : cancel}
+      fullScreen={isBatch}
+      fullWidth
+      maxWidth={quotation ? 'xl' : 'lg'}
+      scroll="paper"
+    >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5, pr: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1 }}>
           <span>{isNew ? `New ${config.title}` : `${config.title} ${doc.name}`}</span>
@@ -267,6 +281,11 @@ export default function DocForm({ config, doc, open, onClose }) {
           {(() => { const s = config.getEffectiveStatus ? config.getEffectiveStatus(doc) : doc?.status; return s ? <Chip size="small" variant="outlined" color={s === "Disapproved" || s === "Rejected" ? "error" : "default"} label={s} /> : null; })()}
         </Box>
         {config.titleActions?.(values, doc)}
+        {isBatch && (
+          <IconButton onClick={cancel} disabled={busy} size="small" edge="end" sx={{ color: 'text.secondary', ml: 1 }}>
+            <CloseRoundedIcon />
+          </IconButton>
+        )}
       </DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2.5}>

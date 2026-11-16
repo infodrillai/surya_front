@@ -106,6 +106,26 @@ export async function runAction(doctype, name, action, args = {}) {
 }
 
 export async function login(usr, pwd) {
-  await request('/api/method/login', { method: 'POST', body: { usr, pwd } });
+  let resolvedUser = (usr || '').trim();
+  const aliasMap = {
+    admin: 'Administrator',
+    sales: 'sales@surya.com',
+    salesperson: 'sales@surya.com',
+    'sales person': 'sales@surya.com',
+    ram: 'ram@gmail.com',
+  };
+  const lower = resolvedUser.toLowerCase();
+  if (aliasMap[lower]) {
+    resolvedUser = aliasMap[lower];
+  }
+  try {
+    await request('/api/method/login', { method: 'POST', body: { usr: resolvedUser, pwd } });
+  } catch (err) {
+    if (resolvedUser !== usr) {
+      await request('/api/method/login', { method: 'POST', body: { usr, pwd } });
+    } else {
+      throw err;
+    }
+  }
 }
 export const logoutRequest = () => request('/api/method/logout', { method: 'POST' }).catch(() => {});

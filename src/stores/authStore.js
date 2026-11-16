@@ -11,17 +11,36 @@ export const useAuthStore = create((set, get) => ({
   fullName: '',
   roles: [],
   isAdmin: false,
+  isSalesPerson: false,
+  salesPerson: null,
   companyState: 'Gujarat',
 
-  hasRole: (allowed) => get().isAdmin || !allowed || allowed.some((r) => get().roles.includes(r)),
+  hasRole: (allowed) => {
+    if (get().isAdmin) return true;
+    if (!allowed || !allowed.length) return true;
+    return allowed.some((r) => get().roles.includes(r));
+  },
 
   async bootstrap() {
     try {
       const me = await call('clssurya.api.me', {}, { get: true });
       setCsrf(await call('clssurya.api.get_csrf_token', {}, { get: true }));
-      set({ status: 'authed', user: me.user, fullName: me.full_name, roles: me.roles, isAdmin: me.is_admin, companyState: me.company_state });
+      const isSales = Boolean(
+        me.is_sales_person ||
+        (!me.is_admin && (me.roles || []).some((r) => ['Sales Person', 'CS Sales'].includes(r)))
+      );
+      set({
+        status: 'authed',
+        user: me.user,
+        fullName: me.full_name,
+        roles: me.roles || [],
+        isAdmin: Boolean(me.is_admin),
+        isSalesPerson: isSales,
+        salesPerson: me.sales_person || null,
+        companyState: me.company_state || 'Gujarat',
+      });
     } catch {
-      set({ status: 'anon' });
+      set({ status: 'anon', user: null, roles: [], isAdmin: false, isSalesPerson: false, salesPerson: null });
     }
   },
 
@@ -35,7 +54,7 @@ export const useAuthStore = create((set, get) => ({
     stopRealtime();
     await wipeCache();
     queryClient.clear();
-    set({ status: 'anon', user: null, roles: [], isAdmin: false });
+    set({ status: 'anon', user: null, roles: [], isAdmin: false, isSalesPerson: false, salesPerson: null });
   },
 }));
 

@@ -39,14 +39,14 @@ const BELT_STAGE_PLURALS = {
 };
 
 const beltItemFields = (stage) => [
-  link('process', 'Process', 'Process', { readOnly: true }),
-  link('product', 'Product', 'Product', { readOnly: true, minWidth: 200 }),
-  ro(num('per_unit_utilization', 'Per unit', { dp: 5 })),
-  ro(num('total_utilization', 'Estimate', { dp: 5 })),
-  num('actual_utilization', 'Actual used'),
-  cur('unit_price', 'Unit price', { dp: 4, positive: true }),
-  ro(cur('actual_amount', 'Actual amount')),
-  cur('extra_cost', 'Extra cost / pc'),
+  link('process', 'Process', 'Process', { readOnly: true, minWidth: 200 }),
+  link('product', 'Product', 'Product', { readOnly: true, minWidth: 280 }),
+  ro(num('per_unit_utilization', 'Per unit', { dp: 5, minWidth: 75 })),
+  ro(num('total_utilization', 'Estimate', { dp: 5, minWidth: 75 })),
+  num('actual_utilization', 'Actual used', { minWidth: 80 }),
+  cur('unit_price', 'Unit price', { dp: 4, positive: true, minWidth: 80 }),
+  ro(cur('actual_amount', 'Actual amount', { minWidth: 85 })),
+  cur('extra_cost', 'Extra cost/pc', { minWidth: 80 }),
 ];
 
 /**

@@ -77,11 +77,36 @@ const customer = {
     t('city', 'City'),
     t('state', 'State'),
     { name: 'address', label: 'Address', type: 'textarea' },
+    link('sales_person', 'Sales Person', 'Sales Person'),
     ro(cur('total_outstanding', 'Total Outstanding')),
   ],
   columns: customerCols,
 };
 
+const salesPerson = {
+  doctype: 'Sales Person',
+  master: true,
+  title: 'Sales Person',
+  plural: 'Sales Persons',
+  subtitle: 'Sales representatives and employee profile management.',
+  fields: [
+    t('sales_person_name', 'Sales Person Name', { required: true }),
+    t('employee_id', 'Employee ID'),
+    t('email', 'Email Address'),
+    t('mobile_no', 'Mobile Number'),
+  //link('assigned_user', 'Linked Frappe User', 'User'),
+  //sel('status', 'Status', ['Active', 'Inactive'], { default: () => 'Active' }),
+    date('joining_date', 'Joining Date'),
+    { name: 'address', label: 'Address', type: 'textarea' },
+  ],
+  columns: [
+    col('sales_person_name', 'Name'),
+    col('employee_id', 'Employee ID'),
+    col('email', 'Email'),
+    col('mobile_no', 'Mobile'),
+    col('status', 'Status'),
+  ],
+};
 
 // ---- Product (with its BOM inside) -----------------------------------------
 const raw = (r) => r.product_type === 'Raw';
@@ -569,10 +594,14 @@ const stageRows = (stage) => async (v) => {
   };
 };
 const itemFields = [
-  link('process', 'Process', 'Process', { readOnly: true }), link('product', 'Product', 'Product', { readOnly: true, minWidth: 200 }),
-  ro(num('per_unit_utilization', 'Per unit', { dp: 4 })), ro(num('total_utilization', 'Estimate', { dp: 4 })),
-  num('actual_utilization', 'Actual used'), ro(cur('unit_price', 'Unit price', { dp: 4 })), ro(cur('actual_amount', 'Actual amount')),
-  cur('extra_cost', 'Extra cost / pc'),
+  link('process', 'Process', 'Process', { readOnly: true, minWidth: 200 }),
+  link('product', 'Product', 'Product', { readOnly: true, minWidth: 280 }),
+  ro(num('per_unit_utilization', 'Per unit', { dp: 4, minWidth: 75 })),
+  ro(num('total_utilization', 'Estimate', { dp: 4, minWidth: 75 })),
+  num('actual_utilization', 'Actual used', { minWidth: 80 }),
+  ro(cur('unit_price', 'Unit price', { dp: 4, minWidth: 80 })),
+  ro(cur('actual_amount', 'Actual amount', { minWidth: 85 })),
+  cur('extra_cost', 'Extra cost / pc', { minWidth: 80 }),
 ];
 
 const STAGE_TITLES = { 1: 'Stage 1 (Insert Making) batch', 2: 'Stage 2 (PU Casting) batch', 3: 'Stage 3 (CNC Machine) batch' };
@@ -596,10 +625,10 @@ const stageConfig = (stage) => ({
     date('posting_date', 'Date'),
     //t('operator', 'Operator / Worker'),
     //link('operation', 'Process / Operation', 'Process'),
-    ...(stage === 3 ? [link('machine', 'CNC Machine', 'CNC Machine')] : []),
+    
     ...(stage === 1 ? [num('weight_per_piece', 'Weight per piece', { positive: true }), ro(num('wastage_qty', 'Wastage (to scrap)', { dp: 4 }))] : []),
-    ...(stage === 3 ? [num('tooling_percent', 'Tooling cost %', { max: 100 }), ro(cur('tooling_base', 'Tooling base (carried + ticked charges)', { minWidth: 220 }))] : []),
-    num('rejection_percent', stage === 3 ? 'Rejection % (on everything)' : 'Rejection %', { max: 99.99 }),
+    ...(stage === 3 ? [num('tooling_percent', 'Tooling cost %', { max: 100 }),] : []),
+    num('rejection_percent', stage === 3 ? 'Rejection %' : 'Rejection %', { max: 99.99 }),
     sum(cur('carried_cost', 'Carried cost')), sum(cur('added_cost', 'Added cost')),
     ...(stage === 3 ? [sum(cur('tooling_amount', 'Tooling cost'))] : []),
     sum(cur('rejection_amount', 'Rejection')), sum(cur('batch_total', 'Batch total')), sum(cur('unit_cost', 'Unit cost', { dp: 3 })),
@@ -607,7 +636,7 @@ const stageConfig = (stage) => ({
     //ro(t('status', 'Status')),
   ],
   tables: [
-    { name: 'items', label: stage === 1 ? 'Insert / Roll raw materials' : stage === 2 ? 'Consumption (Roll / carried-in + raw)' : 'Carried-in stock & component items', fields: itemFields, noAdd: true },
+    { name: 'items', label: stage === 1 ? 'Insert / Raw materials' : stage === 2 ? 'Consumption (carried-in + raw)' : 'Carried-in stock ', fields: itemFields, noAdd: true },
     ...(stage === 3 ? [{ name: 'charges', label: 'Charges', noAdd: true, fields: [link('charge', 'Charge', 'Charge', { readOnly: true }), cur('per_unit_price', 'Per unit'), { name: 'in_tooling_base', label: 'In tooling base', type: 'check' }, ro(cur('amount', 'Amount'))] }] : []),
   ],
 
@@ -738,6 +767,7 @@ const quotation = {
   fields: [
     link('customer', 'Customer', 'Customer', { required: true }),
     date('quotation_date', 'Date'),
+    link('sales_person', 'Sales Person', 'Sales Person', { readOnly: true, showIf: (_, ctx) => !ctx?.isNew }),
 
     // ---- Summary panel (order = display order) ----
     sum(cur('subtotal', 'Item Subtotal')),
@@ -907,11 +937,11 @@ const quotation = {
   },
 
   columns: [
-    col('name', 'No'),
+    col('name', 'Quotation No'),
     col('customer', 'Customer'),
     col('quotation_date', 'Date', 'date'),
     col('subtotal', 'Subtotal', 'currency'),
-    //col('taxable_amount', 'Taxable', 'currency'),
+   
     col('grand_total', 'Grand Total', 'currency'),
     col('status', 'Status', 'status'),
   ],
@@ -933,7 +963,7 @@ const quotation = {
     {
       key: 'approve',
       label: 'Approve',
-      show: (r) => ['Draft', 'Sent'].includes(getEffectiveQuotationStatus ? getEffectiveQuotationStatus(r) : r.status),
+      show: (r, isAdmin) => Boolean(isAdmin) && ['Draft', 'Sent'].includes(getEffectiveQuotationStatus ? getEffectiveQuotationStatus(r) : r.status),
       run: async (r) => {
         const result = await runAction('Quotation', r.name, 'approve');
         return result?.result ? `Approved ${r.name}` : `Failed to approve ${r.name}`;
@@ -952,7 +982,7 @@ const quotation = {
     {
       key: 'reject',
       label: 'Reject',
-      show: (r) => ['Draft', 'Sent', 'Approved'].includes(getEffectiveQuotationStatus ? getEffectiveQuotationStatus(r) : r.status),
+      show: (r, isAdmin) => Boolean(isAdmin) && ['Draft', 'Sent', 'Approved'].includes(getEffectiveQuotationStatus ? getEffectiveQuotationStatus(r) : r.status),
       run: async (r) => {
         if (!window.confirm(`Reject quotation ${r.name}? The rejection status will be maintained.`)) return 'Rejection cancelled.';
         await runAction('Quotation', r.name, 'reject');
@@ -1063,6 +1093,7 @@ const salesOrder = {
   fields: [
     link('customer', 'Customer', 'Customer', { required: true }),
     date('order_date', 'Date'),
+    link('sales_person', 'Sales Person', 'Sales Person', { readOnly: true, showIf: (_, ctx) => !ctx?.isNew }),
     // ---- Summary panel ----
     sum(cur('subtotal', 'Subtotal')),
     { ...cur('packing_charges', 'Packing Charges', { default: () => 0 }), summary: true, editable: true },
@@ -1149,7 +1180,7 @@ const salesOrder = {
   },
   validate: (v) => (v.items?.length ? {} : { items: 'Add at least one item' }),
   columns: [
-    col('name', 'No'),
+    col('name', 'Order No'),
     col('customer', 'Customer'),
     col('order_date', 'Date', 'date'),
     col('grand_total', 'Grand Total', 'currency'),
@@ -1197,7 +1228,7 @@ const salesOrder = {
     {
       key: 'cancel',
       label: 'Cancel',
-      show: (r) => !['Completed', 'Cancelled'].includes(r.status),
+      show: (r, admin) => Boolean(admin) && !['Completed', 'Cancelled'].includes(r.status),
       run: async (r) => {
         const ok = window.confirm(`Cancel Sales Order ${r.name}? This cannot be undone.`);
         if (!ok) return `Sales Order ${r.name} not cancelled.`;
@@ -1393,12 +1424,12 @@ const dispatch = {
     return e;
   },
   columns: [
-    col('name', 'No'),
+    col('name', 'Dispatch No'),
     col('sales_order', 'Sales order'),
     col('customer', 'Customer'),
-    col('dispatch_date', 'Date', 'date'),
-    col('dispatch_status', 'Status', 'dispatch-status'),
+    col('dispatch_date', 'Date', 'date'),    
     col('grand_total', 'Grand Total', 'currency'),
+    col('dispatch_status', 'Status', 'dispatch-status'),
 
   ],
 };
@@ -1459,7 +1490,7 @@ const customerReturn = {
   },
 
   columns: [
-    col('name', 'No'),
+    col('name', 'Customer Return No'),
     col('dispatch', 'Dispatch'),
     col('customer', 'Customer'),
     col('return_date', 'Date', 'date'),
@@ -1639,6 +1670,7 @@ const shortageClaim = {
 /** Route path -> config. */
 export const RESOURCES = {
   ...quotationMasters,
+  '/sales-person': salesPerson,
   '/uom': uom, '/product': product, '/category': category, '/process': process, '/purchase': purchase,
   '/quotation': quotation, '/sales-order': salesOrder, '/vendor': vendor, '/customer': customer,
   '/charge': charge, '/dispatch': dispatch, '/customer-return': customerReturn, '/goods-receipt': goodsReceipt,

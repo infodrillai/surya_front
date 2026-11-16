@@ -15,19 +15,19 @@ function syncToFrappeWww() {
   return {
     name: 'sync-to-frappe-www',
     closeBundle() {
-      const appDir = getAppDir();
-      const src = path.join(appDir, 'public/surya/index.html');
-      const wwwDir = path.join(appDir, 'www');
-      const dest = path.join(wwwDir, 'surya.html');
-      try {
-        if (fs.existsSync(src)) {
-          fs.mkdirSync(wwwDir, { recursive: true });
-          fs.copyFileSync(src, dest);
-          console.log(`[vite] Synced index.html to ${dest}`);
-        }
-      } catch (err) {
-        console.warn(`[vite] Sync to frappe www skipped or failed: ${err.message}`);
-      }
+      setTimeout(() => {
+        const appDir = getAppDir();
+        const src = path.join(appDir, 'public/surya/index.html');
+        const wwwDir = path.join(appDir, 'www');
+        const dest = path.join(wwwDir, 'surya.html');
+        try {
+          if (fs.existsSync(src)) {
+            fs.mkdirSync(wwwDir, { recursive: true });
+            fs.copyFileSync(src, dest);
+            console.log(`[vite] Synced index.html to ${dest}`);
+          }
+        } catch (_) {}
+      }, 500);
     },
   };
 }
@@ -62,7 +62,7 @@ export default defineConfig(({ command, mode }) => {
     },
     build: {
       outDir: path.resolve(getAppDir(), 'public/surya'),
-      emptyOutDir: true,
+      emptyOutDir: false,
       chunkSizeWarningLimit: 1500,
     },
     test: { environment: 'node' },

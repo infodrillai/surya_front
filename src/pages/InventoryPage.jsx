@@ -147,7 +147,11 @@ export function getItemStageLabel(item) {
   if (!item) return '';
   const isBelt =
     item.finished_good_type === 'Belt' ||
-    (item.product_type === 'Finished' && item.finished_good_type === 'Belt');
+    item.product_type === 'Belt' ||
+    item.is_belt_batch ||
+    item.category?.toLowerCase() === 'belt' ||
+    (item.product_name && item.product_name.toLowerCase().includes('belt')) ||
+    (item.product && item.product.toLowerCase().includes('belt'));
   const stage = item.stage;
 
   if (isBelt) {
@@ -619,7 +623,7 @@ function InventoryCard({ item, onSelect }) {
   );
 }
 // Detail Dialog for deep inspection
-function DetailDialog({ item, open, onClose, onOpenMoveDialog, getEffectiveAvailableQty }) {
+function DetailDialog({ item, open, onClose, onOpenMoveDialog, getEffectiveAvailableQty, beltMaxStageNum }) {
   const productKey = (item?.product_code || item?.product) ?? '';
   const stageTheme = getStageTheme(item?.stage);
   const StageIcon = stageTheme.Icon;
@@ -637,6 +641,62 @@ function DetailDialog({ item, open, onClose, onOpenMoveDialog, getEffectiveAvail
     enabled: !!open && !!productKey,
     staleTime: 10_000,
   });
+
+  const { data: beltBatches = [] } = useQuery({
+    queryKey: ['list', 'Belt Batch'],
+    queryFn: () =>
+      getList('Belt Batch', {
+        fields: ['name', 'product', 'stage', 'process_step', 'unit_cost', 'batch_total', 'quantity', 'is_completed', 'modified', 'posting_date'],
+        orderBy: 'modified desc',
+      }).catch(() => []),
+    staleTime: 60 * 1000,
+  });
+
+  const displayBatchRecords = useMemo(() => {
+    if (batchRecords && batchRecords.length > 0) return batchRecords;
+    const isBelt =
+      item?.finished_good_type === 'Belt' ||
+      item?.product_type === 'Belt' ||
+      item?.is_belt_batch ||
+      item?.category?.toLowerCase() === 'belt' ||
+      (item?.product_name && item?.product_name.toLowerCase().includes('belt')) ||
+      (item?.product && item?.product.toLowerCase().includes('belt'));
+
+    if (isBelt) {
+      const stepNum = Number(String(item?.stage || '').replace(/\D/g, '')) || 0;
+      const matching = (beltBatches || []).filter((b) => {
+        const matchesProduct =
+          b.product === item?.product ||
+          b.product === item?.product_code ||
+          b.product === item?.product_name;
+        if (!matchesProduct) return false;
+        if (!stepNum) return true;
+        const bStep = Number(b.process_step) || Number(String(b.stage || '').replace(/\D/g, '')) || 1;
+        return bStep === stepNum;
+      });
+
+      return matching.map((b) => {
+        const bStep = Number(b.process_step) || Number(String(b.stage || '').replace(/\D/g, '')) || 1;
+        const stg = bStep === 1 ? 'Stage 1' : bStep === 2 ? 'Stage 2' : bStep === 3 ? 'Stage 3' : 'Stage 4';
+        return {
+          name: b.name,
+          batch_no: b.name,
+          product: b.product,
+          product_code: item?.product_code || b.product,
+          stage: stg,
+          stage_label: getItemStageLabel({ stage: stg, finished_good_type: 'Belt' }),
+          produced_qty: Number(b.quantity) || 0,
+          quantity: Number(b.quantity) || 0,
+          available_qty: Number(b.quantity) || 0,
+          unit_cost: Number(b.unit_cost) || 0,
+          batch_total: Number(b.batch_total) || 0,
+          production_date: b.posting_date || b.modified,
+          is_completed: b.is_completed,
+        };
+      });
+    }
+    return [];
+  }, [batchRecords, beltBatches, item]);
 
   if (!item) return null;
 
@@ -777,7 +837,7 @@ function DetailDialog({ item, open, onClose, onOpenMoveDialog, getEffectiveAvail
                 </Typography>
               </Stack>
               <Typography variant="caption" color="text.secondary">
-                {batchRecords.length} batch record(s) found
+                {displayBatchRecords.length} batch record(s) found
               </Typography>
             </Stack>
 
@@ -788,7 +848,6 @@ function DetailDialog({ item, open, onClose, onOpenMoveDialog, getEffectiveAvail
                     <TableCell sx={{ fontWeight: 700, fontSize: 11.5 }}>Production Date</TableCell>
                     <TableCell sx={{ fontWeight: 700, fontSize: 11.5 }}>Batch No.</TableCell>
                     <TableCell sx={{ fontWeight: 700, fontSize: 11.5 }}>Product Code</TableCell>
-                    <TableCell sx={{ fontWeight: 700, fontSize: 11.5 }}>Production Code</TableCell>
                     <TableCell sx={{ fontWeight: 700, fontSize: 11.5 }}>Product Name</TableCell>
                     <TableCell sx={{ fontWeight: 700, fontSize: 11.5 }}>Production Stage</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 700, fontSize: 11.5 }}>Produced Qty</TableCell>
@@ -804,14 +863,14 @@ function DetailDialog({ item, open, onClose, onOpenMoveDialog, getEffectiveAvail
                         <LinearProgress />
                       </TableCell>
                     </TableRow>
-                  ) : batchRecords.length === 0 ? (
+                  ) : displayBatchRecords.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={10} align="center" sx={{ py: 2, color: 'text.secondary', fontSize: 12 }}>
                         No production batches recorded yet for this product.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    batchRecords.map((r) => {
+                    displayBatchRecords.map((r) => {
                       const isProductFinished = item?.stage === 'Finished' || item?.stage === 'Finished Goods';
                       const isRowFinished = r.stage === 'Finished' || r.stage === 'Finished Goods' || r.stage_label === 'Finished Goods';
                       // PU: Stage 3 (CNC) moves to Finished · Belt: Stage 3 (Roll Finished) or Stage 4 (Charges) moves to Finished
@@ -831,17 +890,7 @@ function DetailDialog({ item, open, onClose, onOpenMoveDialog, getEffectiveAvail
                               ? (r.production_code || r.product_code || item?.production_code || '-')
                               : (r.product_code || item?.product_code || item?.product || '-')}
                           </TableCell>
-                          <TableCell>
-                            {r.production_code ? (
-                              <Chip
-                                size="small"
-                                label={r.production_code}
-                                sx={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: '#0f766e', height: 20 }}
-                              />
-                            ) : (
-                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: 11.5 }}>-</Typography>
-                            )}
-                          </TableCell>
+                          
                           <TableCell>
                             <Typography variant="body2" sx={{ fontWeight: 600, fontSize: 12 }}>
                               {r.product_name || item?.product_name || item?.product || '-'}
@@ -1177,24 +1226,46 @@ function DetailDialog({ item, open, onClose, onOpenMoveDialog, getEffectiveAvail
 
       <DialogActions sx={{ p: 2, justifyContent: 'space-between' }}>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          {item.stage === 'Stage 3' && Number(item.stock) > 0 && (
-            <Button
-              variant="contained"
-              onClick={() => {
-                onClose();
-                onMoveToFinished?.(item);
-              }}
-              sx={{
-                borderRadius: '8px',
-                bgcolor: '#059669',
-                '&:hover': { bgcolor: '#047857' },
-                px: 2.5,
-                fontWeight: 700,
-              }}
-            >
-              Move to Finished Goods
-            </Button>
-          )}
+          {/* Move to Finished Goods — PU: Stage 3 | Belt: only on its highest/last stage */}
+          {(() => {
+            const isBeltDialogItem =
+              item.is_belt_batch ||
+              item.finished_good_type === 'Belt' ||
+              item.product_type === 'Belt' ||
+              item.category?.toLowerCase() === 'belt' ||
+              (item.product_name && item.product_name.toLowerCase().includes('belt')) ||
+              (item.product && item.product.toLowerCase().includes('belt'));
+
+            let canMove = false;
+            if (isBeltDialogItem && beltMaxStageNum) {
+              // For belt: only on the highest stage the product has reached
+              const maxStep = beltMaxStageNum.get(item.product) || 0;
+              const maxStageName = maxStep === 1 ? 'Stage 1' : maxStep === 2 ? 'Stage 2' : maxStep === 3 ? 'Stage 3' : 'Stage 4';
+              canMove = Number(item.stock) > 0 && item.stage === maxStageName;
+            } else if (!isBeltDialogItem) {
+              // PU product: Stage 3 only
+              canMove = item.stage === 'Stage 3' && Number(item.stock) > 0;
+            }
+
+            return canMove ? (
+              <Button
+                variant="contained"
+                onClick={() => {
+                  onClose();
+                  onOpenMoveDialog?.(item);
+                }}
+                sx={{
+                  borderRadius: '8px',
+                  bgcolor: '#059669',
+                  '&:hover': { bgcolor: '#047857' },
+                  px: 2.5,
+                  fontWeight: 700,
+                }}
+              >
+                Move to Finished Goods
+              </Button>
+            ) : null;
+          })()}
 
           {item.stage === 'Finished' && (
             <Button
@@ -1261,6 +1332,25 @@ export default function InventoryPage() {
     }
   });
 
+  // Belt product finished-goods tracking: { [product]: total_qty_moved_to_finished }
+  // Used to deduct finished qty from ALL stages of a belt product (Stage 1, 2, 3, 4)
+  const [finishedByProduct, setFinishedByProduct] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('belt_finished_by_product') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  const recordFinishedByProduct = (product, qty) => {
+    if (!product) return;
+    setFinishedByProduct((prev) => {
+      const next = { ...prev, [product]: (prev[product] || 0) + Number(qty) };
+      localStorage.setItem('belt_finished_by_product', JSON.stringify(next));
+      return next;
+    });
+  };
+
   const recordTransfer = (batchNo, qty) => {
     if (!batchNo) return;
     setTransferredMap((prev) => {
@@ -1313,18 +1403,93 @@ export default function InventoryPage() {
     }
 
     setMoveLoading(true);
+    const targetProduct = moveTarget.product || moveTarget.product_code;
+    const isBelt =
+      moveTarget.is_belt_batch ||
+      moveTarget.finished_good_type === 'Belt' ||
+      moveTarget.product_type === 'Belt' ||
+      moveTarget.category?.toLowerCase() === 'belt' ||
+      moveTarget.stage === 'Stage 4' ||
+      moveTarget.stage === 'Stage 2' ||
+      (moveTarget.product_name && moveTarget.product_name.toLowerCase().includes('belt')) ||
+      (moveTarget.product && moveTarget.product.toLowerCase().includes('belt'));
+
+    let successMessage = '';
+    let usedBackendApi = false;
+
+    // For standard PU batches in Stage 3, attempt backend move_to_finished API
+    if (!isBelt && (moveTarget.stage === 'Stage 3' || toInternalStage(moveTarget.stage) === 'Stage 3')) {
+      try {
+        const res = await call('clssurya.api.move_to_finished', {
+          product: targetProduct,
+          qty,
+          batch_no: moveTarget.batch_no || moveTarget.name || '',
+          production_code: moveProdCode || moveTarget.production_code || '',
+          destination_location: moveLocation,
+          remarks: moveRemarks || `Transfer of ${qty} to Finished Goods`,
+        });
+        successMessage = res?.message || '';
+        usedBackendApi = true;
+      } catch (backendErr) {
+        console.warn('Backend move_to_finished returned error, proceeding with direct inventory transfer:', backendErr);
+      }
+    }
+
     try {
-      const res = await call('clssurya.api.move_to_finished', {
-        product: moveTarget.product || moveTarget.product_code,
-        qty,
-        batch_no: moveTarget.batch_no || moveTarget.name || '',
-        production_code: moveProdCode || moveTarget.production_code || '',
-        destination_location: moveLocation,
-        remarks: moveRemarks || `Transfer of ${qty} to Finished Goods`,
-      });
+      // If backend API was not used or failed (e.g. Belt Batch or Stage 4):
+      if (!usedBackendApi) {
+        try {
+          const existingFG = (serverInventory || []).find(
+            (inv) =>
+              (inv.product === targetProduct || inv.product_code === targetProduct) &&
+              (inv.stage === 'Finished' || toInternalStage(inv.stage) === 'Finished')
+          );
+          const unitCost = Number(moveTarget.unit_price || moveTarget.unit_cost) || 0;
+          if (existingFG?.name) {
+            const oldStock = Number(existingFG.stock) || 0;
+            const oldPrice = Number(existingFG.unit_price) || 0;
+            const newStock = oldStock + qty;
+            const newPrice = newStock > 0 ? (oldStock * oldPrice + qty * unitCost) / newStock : unitCost;
+            await updateDoc('Inventory', existingFG.name, {
+              stock: newStock,
+              unit_price: newPrice,
+              total_amount: newStock * newPrice,
+              production_code: moveProdCode || existingFG.production_code || '',
+            });
+          } else {
+            await insertDoc('Inventory', {
+              product: targetProduct,
+              stage: 'Finished',
+              stock: qty,
+              unit_price: unitCost,
+              total_amount: qty * unitCost,
+              production_code: moveProdCode || '',
+            });
+          }
+
+          // Decrement source stage inventory on server if present
+          const sourceInv = (serverInventory || []).find(
+            (inv) =>
+              (inv.product === targetProduct || inv.product_code === targetProduct) &&
+              (inv.stage === moveTarget.stage || toInternalStage(inv.stage) === toInternalStage(moveTarget.stage))
+          );
+          if (sourceInv?.name) {
+            const curStock = Number(sourceInv.stock) || 0;
+            await updateDoc('Inventory', sourceInv.name, {
+              stock: Math.max(0, curStock - qty),
+            });
+          }
+        } catch (serverErr) {
+          console.warn('Server Inventory sync warning:', serverErr);
+        }
+      }
 
       if (moveTarget?.batch_no || moveTarget?.name) {
         recordTransfer(moveTarget.batch_no || moveTarget.name, qty);
+      }
+      // For belt products: record finished qty by product so ALL stage rows get deducted
+      if (isBelt && targetProduct) {
+        recordFinishedByProduct(targetProduct, qty);
       }
 
       // Store production_code locally so Finished Goods immediately reflects it
@@ -1342,16 +1507,18 @@ export default function InventoryPage() {
       // Optimistically update React Query cache for Inventory
       qc.setQueryData(['list', 'Inventory'], (old) => {
         if (!old || !Array.isArray(old)) return old;
-        const targetProduct = moveTarget.product || moveTarget.product_code;
         let fgFound = false;
         const updated = old.map((inv) => {
-          if (inv.product === targetProduct && (
-            inv.stage === 'Stage 3' || toInternalStage(inv.stage) === 'Stage 3' ||
-            inv.stage === 'Stage 4' || toInternalStage(inv.stage) === 'Stage 4'
-          )) {
+          if (
+            (inv.product === targetProduct || inv.product_code === targetProduct) &&
+            (inv.stage === moveTarget.stage || toInternalStage(inv.stage) === toInternalStage(moveTarget.stage))
+          ) {
             return { ...inv, stock: Math.max(0, (Number(inv.stock) || 0) - qty) };
           }
-          if (inv.product === targetProduct && (inv.stage === 'Finished' || toInternalStage(inv.stage) === 'Finished')) {
+          if (
+            (inv.product === targetProduct || inv.product_code === targetProduct) &&
+            (inv.stage === 'Finished' || toInternalStage(inv.stage) === 'Finished')
+          ) {
             fgFound = true;
             return {
               ...inv,
@@ -1368,14 +1535,14 @@ export default function InventoryPage() {
             stage: 'Finished',
             stock: qty,
             production_code: moveProdCode,
-            unit_price: moveTarget.unit_cost || 0,
-            total_amount: qty * (moveTarget.unit_cost || 0),
+            unit_price: moveTarget.unit_price || moveTarget.unit_cost || 0,
+            total_amount: qty * (moveTarget.unit_price || moveTarget.unit_cost || 0),
           });
         }
         return updated;
       });
 
-      alert(res?.message || `Successfully transferred ${qty} ${moveTarget?.uom || 'PCS'} to Finished Goods!`);
+      alert(successMessage || `Successfully transferred ${qty} ${moveTarget?.uom || 'PCS'} to Finished Goods!`);
       setMoveTarget(null);
       refetch();
       if (viewMode === 'datewise') refetchDatewise();
@@ -1383,6 +1550,7 @@ export default function InventoryPage() {
       qc.invalidateQueries({ queryKey: ['datewise_production'] });
       qc.invalidateQueries({ queryKey: ['all_datewise_production_inventory'] });
       qc.invalidateQueries({ queryKey: ['list', 'Inventory'] });
+      qc.invalidateQueries({ queryKey: ['list', 'Belt Batch'] });
     } catch (err) {
       alert('Error moving to Finished Goods: ' + (err?.message || 'Transfer failed'));
     } finally {
@@ -1448,23 +1616,137 @@ export default function InventoryPage() {
     );
     if (!ok) return;
 
+    const targetProduct = item.product || item.product_code;
+    const isBelt =
+      item.is_belt_batch ||
+      item.finished_good_type === 'Belt' ||
+      item.product_type === 'Belt' ||
+      item.category?.toLowerCase() === 'belt' ||
+      item.stage === 'Stage 4' ||
+      item.stage === 'Stage 2' ||
+      (item.product_name && item.product_name.toLowerCase().includes('belt')) ||
+      (item.product && item.product.toLowerCase().includes('belt'));
+
+    let successMsg = '';
+    let usedBackendApi = false;
+
+    if (!isBelt && (item.stage === 'Stage 3' || toInternalStage(item.stage) === 'Stage 3')) {
+      try {
+        const res = await call('clssurya.api.move_to_finished', {
+          product: targetProduct,
+          qty,
+          batch_no: item.batch_no || item.name || '',
+          production_code: item.production_code || '',
+          destination_location: 'Finished Goods Warehouse',
+          remarks: `Moved full quantity of ${item.batch_no || item.product || ''}`.trim(),
+        });
+        successMsg = res?.message || '';
+        usedBackendApi = true;
+      } catch (backendErr) {
+        console.warn('Backend move_to_finished returned error, proceeding with direct transfer:', backendErr);
+      }
+    }
+
     try {
-      const res = await call('clssurya.api.move_to_finished', {
-        product: item.product || item.product_code,
-        qty,
-        batch_no: item.batch_no || item.name || '',
-        production_code: item.production_code || '',
-        destination_location: 'Finished Goods Warehouse',
-        remarks: `Moved full quantity of ${item.batch_no || item.product || ''}`.trim(),
-      });
+      if (!usedBackendApi) {
+        try {
+          const existingFG = (serverInventory || []).find(
+            (inv) =>
+              (inv.product === targetProduct || inv.product_code === targetProduct) &&
+              (inv.stage === 'Finished' || toInternalStage(inv.stage) === 'Finished')
+          );
+          const unitCost = Number(item.unit_price || item.unit_cost) || 0;
+          if (existingFG?.name) {
+            const oldStock = Number(existingFG.stock) || 0;
+            const oldPrice = Number(existingFG.unit_price) || 0;
+            const newStock = oldStock + qty;
+            const newPrice = newStock > 0 ? (oldStock * oldPrice + qty * unitCost) / newStock : unitCost;
+            await updateDoc('Inventory', existingFG.name, {
+              stock: newStock,
+              unit_price: newPrice,
+              total_amount: newStock * newPrice,
+              production_code: item.production_code || existingFG.production_code || '',
+            });
+          } else {
+            await insertDoc('Inventory', {
+              product: targetProduct,
+              stage: 'Finished',
+              stock: qty,
+              unit_price: unitCost,
+              total_amount: qty * unitCost,
+              production_code: item.production_code || '',
+            });
+          }
+
+          const sourceInv = (serverInventory || []).find(
+            (inv) =>
+              (inv.product === targetProduct || inv.product_code === targetProduct) &&
+              (inv.stage === item.stage || toInternalStage(inv.stage) === toInternalStage(item.stage))
+          );
+          if (sourceInv?.name) {
+            const curStock = Number(sourceInv.stock) || 0;
+            await updateDoc('Inventory', sourceInv.name, {
+              stock: Math.max(0, curStock - qty),
+            });
+          }
+        } catch (serverErr) {
+          console.warn('Server Inventory sync warning:', serverErr);
+        }
+      }
+
       if (item?.batch_no || item?.name) {
         markBatchAsMoved(item.batch_no || item.name);
+        recordTransfer(item.batch_no || item.name, qty);
       }
-      alert(res?.message || `Successfully moved all ${fmtNum(qty, 2)} ${item?.uom || 'PCS'} to Finished Goods!`);
+      // For belt products: record finished qty by product so ALL stage rows get deducted
+      if (isBelt && targetProduct) {
+        recordFinishedByProduct(targetProduct, qty);
+      }
+
+      qc.setQueryData(['list', 'Inventory'], (old) => {
+        if (!old || !Array.isArray(old)) return old;
+        let fgFound = false;
+        const updated = old.map((inv) => {
+          if (
+            (inv.product === targetProduct || inv.product_code === targetProduct) &&
+            (inv.stage === item.stage || toInternalStage(inv.stage) === toInternalStage(item.stage))
+          ) {
+            return { ...inv, stock: Math.max(0, (Number(inv.stock) || 0) - qty) };
+          }
+          if (
+            (inv.product === targetProduct || inv.product_code === targetProduct) &&
+            (inv.stage === 'Finished' || toInternalStage(inv.stage) === 'Finished')
+          ) {
+            fgFound = true;
+            return {
+              ...inv,
+              stock: (Number(inv.stock) || 0) + qty,
+              production_code: item.production_code || inv.production_code,
+            };
+          }
+          return inv;
+        });
+        if (!fgFound) {
+          updated.push({
+            name: `FG-${targetProduct}`,
+            product: targetProduct,
+            stage: 'Finished',
+            stock: qty,
+            production_code: item.production_code || '',
+            unit_price: item.unit_price || item.unit_cost || 0,
+            total_amount: qty * (item.unit_price || item.unit_cost || 0),
+          });
+        }
+        return updated;
+      });
+
+      alert(successMsg || `Successfully moved all ${fmtNum(qty, 2)} ${item?.uom || 'PCS'} to Finished Goods!`);
       refetch();
       refetchDatewise();
       qc.invalidateQueries({ queryKey: ['datewise_production_item'] });
       qc.invalidateQueries({ queryKey: ['datewise_production'] });
+      qc.invalidateQueries({ queryKey: ['list', 'Inventory'] });
+      qc.invalidateQueries({ queryKey: ['list', 'Belt Batch'] });
     } catch (err) {
       alert('Error: ' + (err?.message || 'Move failed'));
     }
@@ -1702,14 +1984,144 @@ export default function InventoryPage() {
     return map;
   }, [stage1Batches, stage2Batches, stage3Batches, beltBatches, allDatewiseBatches, productMap]);
 
-  // Enriched inventory items with live batch valuation for Stage 1, Stage 2, and Stage 3
+  // Enriched inventory items with live batch valuation for Stage 1, Stage 2, Stage 3, and Stage 4 (Belt)
   const enrichedItems = useMemo(() => {
     let savedCodes = {};
     try {
       savedCodes = JSON.parse(localStorage.getItem('finished_prod_codes') || '{}');
     } catch (_) {}
 
-    return serverInventory.map((item) => {
+    // Group belt batches by product & stage (Stage 1, Stage 2, Stage 3, Stage 4)
+    const beltBatchGroups = new Map();
+    // Track the max stage number reached per belt product (to control "Move to Finished" button)
+    const beltMaxStageNum = new Map(); // { product: maxStepNumber }
+    // Also track finished-goods quantities from Belt batch transfers
+    const beltFinishedGroups = new Map(); // key = product
+
+    (beltBatches || []).forEach((b) => {
+      const prod = b.product;
+      if (!prod) return;
+      const step = Number(b.process_step) || Number(String(b.stage || '').replace(/\D/g, '')) || 1;
+      const stageName = step === 1 ? 'Stage 1' : step === 2 ? 'Stage 2' : step === 3 ? 'Stage 3' : 'Stage 4';
+      const key = `${prod}_${stageName}`;
+
+      // Track the highest stage this belt product has reached
+      const prevMax = beltMaxStageNum.get(prod) || 0;
+      if (step > prevMax) beltMaxStageNum.set(prod, step);
+
+      const rawQty = Number(b.quantity) || 0;
+      const unitCost = Number(b.unit_cost) || 0;
+
+      // Deduct: either directly transferred from this specific batch,
+      // OR indirectly consumed because this product was moved to Finished Goods
+      // (the finished qty covers ALL stages of the same product — same physical units)
+      const transferredFromThisBatch = Number(transferredMap[b.name]) || 0;
+      const totalFinishedForProduct = Number(finishedByProduct[prod]) || 0;
+      // Available = raw qty minus whichever is larger: direct batch transfer or product-level finished qty
+      const effectiveDeducted = Math.min(rawQty, Math.max(transferredFromThisBatch, totalFinishedForProduct));
+      const qty = Math.max(0, rawQty - effectiveDeducted);
+      const batchTotal = Number(b.batch_total) || (rawQty * unitCost);
+
+      if (!beltBatchGroups.has(key)) {
+        beltBatchGroups.set(key, {
+          name: `inv_belt_${prod}_${stageName}`,
+          product: prod,
+          stage: stageName,
+          stock: 0,
+          total_amount: 0,
+          unit_price: unitCost,
+          batch_no: b.name,
+          is_belt_batch: true,
+        });
+      }
+      const grp = beltBatchGroups.get(key);
+      grp.stock += qty;
+      grp.total_amount += (qty > 0 && unitCost > 0) ? (qty * unitCost) : (qty > 0 ? batchTotal * (qty / rawQty) : 0);
+      if (unitCost > 0) grp.unit_price = unitCost;
+
+      // Accumulate finished-goods qty for this product (use finishedByProduct as source of truth)
+      if (totalFinishedForProduct > 0 && !beltFinishedGroups.has(prod)) {
+        beltFinishedGroups.set(prod, {
+          name: `inv_belt_${prod}_Finished`,
+          product: prod,
+          stage: 'Finished',
+          stock: totalFinishedForProduct,
+          total_amount: totalFinishedForProduct * unitCost,
+          unit_price: unitCost,
+          batch_no: b.name,
+          is_belt_batch: true,
+        });
+      } else if (totalFinishedForProduct > 0 && beltFinishedGroups.has(prod)) {
+        const fg = beltFinishedGroups.get(prod);
+        // Keep stock fixed at totalFinishedForProduct (don't double-count per batch)
+        if (unitCost > 0) fg.unit_price = unitCost;
+        fg.total_amount = fg.stock * fg.unit_price;
+      }
+    });
+
+    // Merge serverInventory with belt batch groups
+    const serverKeySet = new Set();
+    const combinedInventory = (serverInventory || []).map((item) => {
+      const internalStg = toInternalStage(item.stage) || item.stage;
+      const key = `${item.product}_${internalStg}`;
+      serverKeySet.add(key);
+
+      // If server inventory has 0 stock for this belt product but belt batches exist, update with belt batch data
+      if (beltBatchGroups.has(key)) {
+        const grp = beltBatchGroups.get(key);
+        const currStock = Number(item.stock) || 0;
+        if (currStock === 0 && grp.stock > 0) {
+          return {
+            ...item,
+            stock: grp.stock,
+            unit_price: item.unit_price > 0 ? item.unit_price : grp.unit_price,
+            total_amount: item.total_amount > 0 ? item.total_amount : grp.total_amount,
+            batch_no: item.batch_no || grp.batch_no,
+            is_belt_batch: true,
+          };
+        }
+      }
+      return item;
+    });
+
+    // Add any belt batch product stages that are not in serverInventory
+    beltBatchGroups.forEach((grp, key) => {
+      if (!serverKeySet.has(key)) {
+        if (grp.stock > 0 && grp.total_amount > 0) {
+          grp.unit_price = grp.total_amount / grp.stock;
+        }
+        combinedInventory.push(grp);
+      }
+    });
+
+    // Add Belt Finished Goods (from transferredMap) if not already present in serverInventory
+    beltFinishedGroups.forEach((fg, prod) => {
+      const fgKey = `${prod}_Finished`;
+      if (!serverKeySet.has(fgKey) && fg.stock > 0) {
+        if (fg.total_amount > 0) {
+          fg.unit_price = fg.total_amount / fg.stock;
+        }
+        combinedInventory.push(fg);
+      } else if (serverKeySet.has(fgKey) && fg.stock > 0) {
+        // Merge belt transferred qty on top of any existing server FG inventory row
+        const idx = combinedInventory.findIndex(
+          (ci) => ci.product === prod && (toInternalStage(ci.stage) === 'Finished')
+        );
+        if (idx >= 0) {
+          const existing = combinedInventory[idx];
+          const mergedStock = Number(existing.stock) + fg.stock;
+          combinedInventory[idx] = {
+            ...existing,
+            stock: mergedStock,
+            total_amount: existing.total_amount + fg.total_amount,
+            unit_price: mergedStock > 0 ? (existing.total_amount + fg.total_amount) / mergedStock : existing.unit_price,
+            is_belt_batch: true,
+          };
+        }
+      }
+    });
+
+    return combinedInventory.map((item) => {
       const p = productMap.get(item.product);
       const bifKey = `${item.product}_${item.stage}`;
       const bif = serverBifurcation[bifKey] || null;
@@ -1790,24 +2202,47 @@ export default function InventoryPage() {
         p?.production_code ||
         '';
 
+      const isBeltItem =
+        item.is_belt_batch ||
+        p?.finished_good_type === 'Belt' ||
+        p?.product_type === 'Belt' ||
+        p?.category?.toLowerCase() === 'belt' ||
+        (item.product_name && item.product_name.toLowerCase().includes('belt')) ||
+        (item.product && item.product.toLowerCase().includes('belt'));
+
       return {
         ...item,
         product_name: p?.product_name || item.product,
         product_code: p?.product_code || item.product,
         production_code,
-        product_type: p?.product_type || '',
-        finished_good_type: p?.finished_good_type || '',
-        uom: p?.uom || '',
-        category: p?.category || '',
+        product_type: p?.product_type || (isBeltItem ? 'Finished' : ''),
+        finished_good_type: p?.finished_good_type || (isBeltItem ? 'Belt' : ''),
+        uom: p?.uom || (isBeltItem ? 'MTR' : ''),
+        category: p?.category || (isBeltItem ? 'Belt' : ''),
         low_stock_limit: Number(p?.low_stock_limit) || 0,
         high_stock_limit: Number(p?.high_stock_limit) || 0,
         stock,
         unit_price,
         total_amount,
         bifurcation: bif,
+        is_belt_batch: isBeltItem,
       };
     });
-  }, [serverInventory, productMap, serverBifurcation, stageBatchCostMap, bomCostMap]);
+  }, [serverInventory, beltBatches, transferredMap, finishedByProduct, productMap, serverBifurcation, stageBatchCostMap, bomCostMap]);
+
+  // Belt product max-stage map: { product: maxStepNumber (1-4) }
+  // Computed separately so inventory cards can determine which stage shows "Move to Finished"
+  const beltMaxStageNum = useMemo(() => {
+    const map = new Map();
+    (beltBatches || []).forEach((b) => {
+      const prod = b.product;
+      if (!prod) return;
+      const step = Number(b.process_step) || Number(String(b.stage || '').replace(/\D/g, '')) || 1;
+      const prevMax = map.get(prod) || 0;
+      if (step > prevMax) map.set(prod, step);
+    });
+    return map;
+  }, [beltBatches]);
 
   // Warehouse Valuation Bifurcation across Production Charges
   const warehouseBifurcation = useMemo(() => {
@@ -1865,8 +2300,10 @@ export default function InventoryPage() {
     };
 
     enrichedItems.forEach((i) => {
-      if (stageCounts[i.stage] !== undefined) {
-        stageCounts[i.stage] += 1;
+      // normalize stage so 'Finished Goods' also increments 'Finished' count
+      const normStage = toInternalStage(i.stage) || i.stage;
+      if (stageCounts[normStage] !== undefined) {
+        stageCounts[normStage] += 1;
       }
     });
 
@@ -1896,9 +2333,10 @@ export default function InventoryPage() {
       );
     }
 
-    // Stage filter
+    // Stage filter — normalize both sides so 'Finished' matches 'Finished Goods' etc.
     if (stageFilter !== 'All') {
-      items = items.filter((i) => i.stage === stageFilter);
+      const normFilter = toInternalStage(stageFilter) || stageFilter;
+      items = items.filter((i) => (toInternalStage(i.stage) || i.stage) === normFilter);
     }
 
     // Category filter
@@ -2580,7 +3018,17 @@ export default function InventoryPage() {
                           >
                             View
                           </Button>
-                          {(item.stage === 'Stage 3' || item.stage === 'Stage 4') && (
+                          {/* Move to Finished — PU: Stage 3 | Belt: only on its highest/last stage */}
+                          {(() => {
+                            if (item.is_belt_batch) {
+                              // For belt products show button ONLY on the max stage the product has reached
+                              const maxStep = beltMaxStageNum.get(item.product) || 0;
+                              const maxStageName = maxStep === 1 ? 'Stage 1' : maxStep === 2 ? 'Stage 2' : maxStep === 3 ? 'Stage 3' : 'Stage 4';
+                              return item.stage === maxStageName && Number(item.stock) > 0;
+                            }
+                            // PU products: Stage 3 only
+                            return item.stage === 'Stage 3';
+                          })() && (
                             <Button
                               size="small"
                               variant="contained"
@@ -2977,6 +3425,7 @@ export default function InventoryPage() {
         onClose={() => setSelectedItem(null)}
         onOpenMoveDialog={openMoveDialog}
         getEffectiveAvailableQty={getEffectiveAvailableQty}
+        beltMaxStageNum={beltMaxStageNum}
       />
     </Box>
   );

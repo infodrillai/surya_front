@@ -20,6 +20,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { call, getDoc, getList, runAction } from '../api/client';
 import QuotationVersionBar, { openQuotation } from '../components/QuotationVersionBar';
+import { generateQuotationPDF } from '../lib/pdfUtils';
 import { todayISO } from '../lib/format';
 import { useAuthStore } from '../stores/authStore';
 import { db } from '../db/dexie';
@@ -37,33 +38,45 @@ export async function quotationPdf(doc) {
 }
 
 export async function downloadQuotation(doc) {
-  const file = await quotationPdf(doc);
-  const url = URL.createObjectURL(file);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = file.name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
-}
-
-async function shareQuotation(doc) {
-  const file = await quotationPdf(doc);
-  if (navigator.canShare?.({ files: [file] })) {
-    await navigator.share({
-      files: [file],
-      title: `Quotation ${doc.name}`,
-      text: 'Please find the quotation attached.',
-    });
-  } else {
+  try {
+    await generateQuotationPDF(doc);
+  } catch (clientErr) {
+    console.warn('Client PDF generation fallback to server:', clientErr);
+    const file = await quotationPdf(doc);
     const url = URL.createObjectURL(file);
     const a = document.createElement('a');
     a.href = url;
     a.download = file.name;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    window.alert(
-      'The PDF has been downloaded. Open WhatsApp and attach this file to your customer conversation. Direct file sharing requires a browser with file sharing support.'
-    );
+  }
+}
+
+async function shareQuotation(doc) {
+  try {
+    await generateQuotationPDF(doc);
+    const summaryText = `Quotation ${doc.name} for ${doc.customer || ''} - Total: ₹${doc.grand_total || doc.total_amount || 0}`;
+    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(summaryText + '\n\nQuotation PDF has been downloaded to your device.')}`;
+    window.open(waUrl, '_blank');
+  } catch (_) {
+    const file = await quotationPdf(doc);
+    if (navigator.canShare?.({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: `Quotation ${doc.name}`,
+        text: 'Please find the quotation attached.',
+      });
+    } else {
+      const url = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      window.alert(
+        'The PDF has been downloaded. Open WhatsApp and attach this file to your customer conversation.'
+      );
+    }
   }
 }
 
@@ -126,8 +139,8 @@ function QuotationPanel({ doc, values }) {
               effectiveStatus === 'Disapproved' || effectiveStatus === 'Rejected'
                 ? 'error'
                 : effectiveStatus === 'Approved'
-                ? 'info'
-                : 'default'
+                  ? 'info'
+                  : 'default'
             }
             sx={{ height: 20, fontSize: 11, fontWeight: 600 }}
           />
@@ -142,7 +155,7 @@ function QuotationPanel({ doc, values }) {
         References are in the selected currency, per product master unit. Quoted quantities and rates use the selected line unit. Enter master units per quoted unit for unit conversion. A percentage is undefined when the cost base is zero.
       </Typography>
       <Stack direction="row" gap={1} flexWrap="wrap">
-        <Button
+        {/* <Button
           size="small"
           variant="outlined"
           disabled={busy}
@@ -180,8 +193,8 @@ function QuotationPanel({ doc, values }) {
             })
           }
         >
-          Previous Quotations
-        </Button>
+
+        </Button> */}
         {doc?.name && (
           <>
             <Button disabled={busy} onClick={() => run(() => downloadQuotation(doc))}>
@@ -194,10 +207,19 @@ function QuotationPanel({ doc, values }) {
               disabled={busy}
               onClick={() =>
                 run(async () => {
-                  const recipient = window.prompt('Customer email address');
-                  if (recipient) {
-                    await api('email_pdf', { name: doc.name, recipient });
-                    window.alert('Quotation email queued.');
+                  const recipient = window.prompt('Customer email address:');
+                  if (recipient && recipient.trim()) {
+                    try {
+                      await api('email_pdf', { name: doc.name, recipient: recipient.trim() });
+                      window.alert(`Quotation ${doc.name} email sent/queued to ${recipient.trim()}.`);
+                    } catch (err) {
+                      const msg = err?.message || String(err);
+                      if (msg.includes('Email Account') || msg.includes('OutgoingEmailError')) {
+                        window.alert('Outgoing Email Account is not yet configured in Frappe.\nPlease setup a default outgoing Email Account from Tools / Settings > Email Account in Frappe Desk.');
+                      } else {
+                        window.alert(`Could not send email: ${msg}`);
+                      }
+                    }
                   }
                 })
               }
@@ -227,7 +249,7 @@ function QuotationPanel({ doc, values }) {
                       let data = {};
                       try {
                         data = JSON.parse(log.data);
-                      } catch {}
+                      } catch { }
                       return {
                         user: log.owner,
                         date: log.creation,
@@ -371,9 +393,6 @@ function QuotationPanel({ doc, values }) {
  * - UOM from Product master / Dexie
  * - Cost unit from batch unit cost (clssurya.api.get_finished_cost -> Belt/PU Batch -> Inventory -> Product rate)
  * - Product image
- * - Last sale price from recent Sales Orders
- * - Last purchase price from recent Purchase Entries / Product doc
- * - BOM raw cost
  */
 export async function fetchProductInfo(productName) {
   if (!productName) {
@@ -409,13 +428,13 @@ export async function fetchProductInfo(productName) {
         );
       }
     }
-  } catch (_) {}
+  } catch (_) { }
 
   // 2. Fallback to API getDoc
   if (!doc) {
     try {
       doc = await getDoc('Product', productName);
-    } catch (_) {}
+    } catch (_) { }
   }
 
   if (doc) {
@@ -437,7 +456,7 @@ export async function fetchProductInfo(productName) {
       if (Number(info.last_purchase_price) > 0) lastPurchase = Number(info.last_purchase_price);
       if (Number(info.raw_material_cost) > 0) rawCost = Number(info.raw_material_cost);
     }
-  } catch (_) {}
+  } catch (_) { }
 
   const prodKeys = [productName, doc?.name, doc?.product_code, doc?.product_name].filter(Boolean);
 
@@ -450,7 +469,7 @@ export async function fetchProductInfo(productName) {
         cost = Number(fc[matchKey].unit_price);
       }
     }
-  } catch (_) {}
+  } catch (_) { }
 
   // Look up latest batch unit cost across Belt Batches and Stage Batches
   if (!cost) {
@@ -460,7 +479,7 @@ export async function fetchProductInfo(productName) {
       if (typeof db !== 'undefined' && db?.table) {
         try {
           beltBatches = await db.table('Belt Batch').toArray();
-        } catch (_) {}
+        } catch (_) { }
       }
       if (!beltBatches?.length) {
         beltBatches = await getList('Belt Batch', {
@@ -477,7 +496,7 @@ export async function fetchProductInfo(productName) {
       if (match) {
         cost = Number(match.unit_cost) || Number(match.batch_total) / Number(match.quantity);
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // Check Stage 3 Batch
     if (!cost) {
@@ -486,7 +505,7 @@ export async function fetchProductInfo(productName) {
         if (typeof db !== 'undefined' && db?.table) {
           try {
             stg3Batches = await db.table('Stage 3 Batch').toArray();
-          } catch (_) {}
+          } catch (_) { }
         }
         if (!stg3Batches?.length) {
           stg3Batches = await getList('Stage 3 Batch', {
@@ -503,7 +522,7 @@ export async function fetchProductInfo(productName) {
         if (match) {
           cost = Number(match.unit_cost) || Number(match.batch_total) / Number(match.quantity);
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // Check Stage 2 Batch
@@ -513,7 +532,7 @@ export async function fetchProductInfo(productName) {
         if (typeof db !== 'undefined' && db?.table) {
           try {
             stg2Batches = await db.table('Stage 2 Batch').toArray();
-          } catch (_) {}
+          } catch (_) { }
         }
         if (!stg2Batches?.length) {
           stg2Batches = await getList('Stage 2 Batch', {
@@ -530,7 +549,7 @@ export async function fetchProductInfo(productName) {
         if (match) {
           cost = Number(match.unit_cost) || Number(match.batch_total) / Number(match.quantity);
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // Check Inventory table (Finished stage)
@@ -548,7 +567,7 @@ export async function fetchProductInfo(productName) {
             cost = Number(match.unit_price);
           }
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // Fallback to Product rates
@@ -564,7 +583,7 @@ export async function fetchProductInfo(productName) {
       if (typeof db !== 'undefined' && db?.table) {
         try {
           soList = await db.table('Sales Order').toArray();
-        } catch (_) {}
+        } catch (_) { }
       }
       if (!soList?.length) {
         soList = await getList('Sales Order', {
@@ -582,7 +601,7 @@ export async function fetchProductInfo(productName) {
           }
         }
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // 6. Last purchase price lookup (from recent Purchase Entries)
@@ -592,7 +611,7 @@ export async function fetchProductInfo(productName) {
       if (typeof db !== 'undefined' && db?.table) {
         try {
           peList = await db.table('Purchase Entry').toArray();
-        } catch (_) {}
+        } catch (_) { }
       }
       if (!peList?.length) {
         peList = await getList('Purchase Entry', {
@@ -610,7 +629,7 @@ export async function fetchProductInfo(productName) {
           }
         }
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   return {
@@ -637,7 +656,7 @@ function QuotationNavButtons({ doc }) {
       try {
         let list = [];
         if (typeof db !== 'undefined' && db?.table) {
-          try { list = await db.table('Quotation').toArray(); } catch (_) {}
+          try { list = await db.table('Quotation').toArray(); } catch (_) { }
         }
         if (!list?.length) {
           list = await getList('Quotation', {
@@ -652,7 +671,7 @@ function QuotationNavButtons({ doc }) {
           );
           setAllList(sorted);
         }
-      } catch (_) {}
+      } catch (_) { }
     })();
     return () => { alive = false; };
   }, [name]);
@@ -765,7 +784,7 @@ export function enhanceQuotation(config) {
 
   // Set line items fields strictly in the user-requested sequence:
   // product img, product, uom (fetch according product select), cost unit(fetch according batch unit cost),
-  // qty, pr, rate, gst, discount, amount, last sale, last purchase, bom raw cost
+  // qty, pr, rate, gst, discount, amount
   config.tables[0].itemDiscounts = false;
   config.tables[0].fields = [
     {
@@ -773,6 +792,7 @@ export function enhanceQuotation(config) {
       label: 'Product img',
       type: 'image',
       readOnly: true,
+      minWidth: 44,
     },
     {
       name: 'product',
@@ -780,7 +800,7 @@ export function enhanceQuotation(config) {
       type: 'link',
       master: 'Product',
       required: true,
-      minWidth: 220,
+      minWidth: 240,
       labelField: 'product_name',
       onChange: async (row) => {
         await setProduct(row);
@@ -792,18 +812,18 @@ export function enhanceQuotation(config) {
       type: 'link',
       master: 'UOM',
       required: true,
-      minWidth: 90,
+      minWidth: 70,
     },
     {
       ...read('production_cost', 'Cost unit'),
       type: 'currency',
       dp: 4,
-      minWidth: 100,
+      minWidth: 85,
     },
     number('quantity', 'Qty', {
       positive: true,
       required: true,
-      minWidth: 80,
+      minWidth: 65,
       onChange: (row) => {
         recomputeLine(row);
       },
@@ -812,7 +832,7 @@ export function enhanceQuotation(config) {
       allowNegative: true,
       dp: 2,
       default: () => 0,
-      minWidth: 80,
+      minWidth: 65,
       onChange: (row) => {
         row.pricing_mode = 'Percentage';
         recomputeLine(row);
@@ -823,7 +843,7 @@ export function enhanceQuotation(config) {
       label: 'Rate',
       type: 'currency',
       dp: 4,
-      minWidth: 105,
+      minWidth: 85,
       readOnly: false,
       onChange: (row, { values } = {}) => {
         row.pricing_mode = 'Rate';
@@ -835,7 +855,7 @@ export function enhanceQuotation(config) {
       min: 0,
       max: 100,
       default: () => 0,
-      minWidth: 80,
+      minWidth: 65,
       onChange: (row) => {
         recomputeLine(row);
       },
@@ -844,7 +864,7 @@ export function enhanceQuotation(config) {
       min: 0,
       max: 100,
       default: () => 0,
-      minWidth: 90,
+      minWidth: 70,
       onChange: (row) => {
         recomputeLine(row);
       },
@@ -853,22 +873,7 @@ export function enhanceQuotation(config) {
       ...read('amount', 'Amount'),
       type: 'currency',
       dp: 2,
-      minWidth: 110,
-    },
-    {
-      ...read('last_selling_price', 'Last sale'),
-      type: 'currency',
-      minWidth: 100,
-    },
-    {
-      ...read('last_purchase_price', 'Last purchase'),
-      type: 'currency',
-      minWidth: 100,
-    },
-    {
-      ...read('raw_material_cost', 'BOM raw cost'),
-      type: 'currency',
-      minWidth: 110,
+      minWidth: 90,
     },
   ];
 
@@ -911,7 +916,7 @@ export function enhanceQuotation(config) {
             }
             return updated;
           }
-        } catch (_) {}
+        } catch (_) { }
         return row;
       })
     );

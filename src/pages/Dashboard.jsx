@@ -26,7 +26,7 @@ export default function Dashboard() {
   const waiting = (pending.data || []).filter((o) => o.status === 'Pending Approval').length;
 
   return (
-    <Stack spacing={3}>
+    <Stack spacing={3} sx={{ p: { xs: 2, md: 3 } }}>
       <Box>
         <Typography variant="h5">Welcome, {fullName}</Typography>
         <Typography color="text.secondary">Here is where stock and orders stand today.</Typography>
