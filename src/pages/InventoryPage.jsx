@@ -701,7 +701,7 @@ function DetailDialog({ item, open, onClose, onOpenMoveDialog, getEffectiveAvail
   if (!item) return null;
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth PaperProps={{ sx: { borderRadius: '16px' } }}>
+    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth PaperProps={{ sx: { borderRadius: '16px'} }}>
       <DialogTitle sx={{ pb: 1 }}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
           <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
@@ -2372,7 +2372,7 @@ export default function InventoryPage() {
   const stages = ['All', 'Raw', 'Stage 1', 'Stage 2', 'Stage 3', 'Stage 4', 'Finished'];
 
   return (
-    <Box sx={{ pb: 6 }}>
+    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1600, mx: 'auto', pb: 6 }}>
       {/* Page Title & Quick Controls */}
       <Stack
         direction={{ xs: 'column', sm: 'row' }}

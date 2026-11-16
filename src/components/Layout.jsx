@@ -51,7 +51,18 @@ function Nav({ onNavigate }) {
           {isSalesPerson && !isAdmin ? 'Sales Workspace' : 'Production and Sales ERP'}
         </Typography>
       </Box>
-      <Box sx={{ flex: 1, overflowY: 'auto', pb: 2 }}>
+      <Box
+        sx={{
+          flex: 1,
+          overflowY: 'auto',
+          pb: 2,
+          scrollbarWidth: 'none',
+          '&::-webkit-scrollbar': {
+            display: 'none',
+          },
+          msOverflowStyle: 'none',
+        }}
+      >
         {!isSalesPerson || isAdmin ? (
           <List dense disablePadding>{item('/', 'Dashboard', SpaceDashboardIcon)}</List>
         ) : null}
@@ -93,7 +104,17 @@ export default function Layout({ children }) {
         variant={wide ? 'permanent' : 'temporary'}
         open={wide || mobileNav}
         onClose={() => setMobileNav(false)}
-        sx={{ width: WIDTH, flexShrink: 0, '& .MuiDrawer-paper': { width: WIDTH, border: 0 } }}
+        sx={{
+          width: WIDTH,
+          flexShrink: 0,
+          '& .MuiDrawer-paper': {
+            width: WIDTH,
+            border: 0,
+            scrollbarWidth: 'none',
+            '&::-webkit-scrollbar': { display: 'none' },
+            msOverflowStyle: 'none',
+          },
+        }}
       >
         <Nav onNavigate={() => setMobileNav(false)} />
       </Drawer>

@@ -8,7 +8,7 @@ const LABELS = ['Stage 1 (Insert Making)', 'Stage 2 (PU Casting)', 'Stage 3 (CNC
 export default function BatchPage() {
   const [tab, setTab] = useState(0);
   return (
-    <Box>
+    <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Typography variant="h5">Production batches</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Each stage consumes the stock the previous stage produced.</Typography>
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>

@@ -14,7 +14,7 @@ export default function BeltBatchPage() {
   const [tab, setTab] = useState(0);
 
   return (
-    <Box>
+    <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.5 }}>
         <Typography variant="h5">Belt production batches</Typography>
       </Stack>
