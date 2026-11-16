@@ -676,15 +676,15 @@ export default function BeltProductionReportPage() {
                 {tab === 0 && (
                   <>
                     <TableCell>Batch No</TableCell>
-                    <TableCell>Posting Date</TableCell>
+                    <TableCell>Posting Dt</TableCell>
                     <TableCell>Product</TableCell>
                     <TableCell>Stage/Process</TableCell>
                     <TableCell>Belt Type</TableCell>
-                    <TableCell align="right">Planned Qty</TableCell>
-                    <TableCell align="right">Produced Qty</TableCell>
-                    <TableCell align="right" sx={{ color: '#16a34a' }}>Accepted </TableCell>
-                    <TableCell align="right" sx={{ color: '#dc2626' }}>Rejected </TableCell>
-                    <TableCell align="right">Total Cost</TableCell>
+                    <TableCell align="right">Plan Qty</TableCell>
+                    <TableCell align="right">Produce Qty</TableCell>
+                    <TableCell align="right" sx={{ color: '#16a34a' }}>Accept </TableCell>
+                    <TableCell align="right" sx={{ color: '#dc2626' }}>Rej. </TableCell>
+                    <TableCell align="right">Amount</TableCell>
                     <TableCell align="center">Status</TableCell>
                   </>
                 )}

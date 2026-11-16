@@ -688,20 +688,20 @@ export default function PendingDispatchAnalysisPage() {
                 }}
               >
                 <TableCell width={45} align="center">#</TableCell>
-                <TableCell>Order Date</TableCell>
+                <TableCell>Order Dt</TableCell>
                 <TableCell>Order No</TableCell>
                 <TableCell>Customer</TableCell>
-                <TableCell>Product </TableCell>
+                <TableCell align="center">Product </TableCell>
                 <TableCell align="right">Order Qty</TableCell>
                 <TableCell align="right">Dispatch Qty</TableCell>
                 <TableCell align="right">Pending Qty</TableCell>
               
-                <TableCell align="right">Rate (₹)</TableCell>
-                <TableCell align="right">Order Amt (₹)</TableCell>
-                <TableCell align="right">Dispatch Amt (₹)</TableCell>
-                <TableCell align="right">Pending Amt (₹)</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Exp. Delivery Date</TableCell>
+                <TableCell align="right">Rate</TableCell>
+                <TableCell align="right">Order Amt</TableCell>
+                <TableCell align="right">Dis. Amt</TableCell>
+                <TableCell align="right">Pen. Amt</TableCell>
+                <TableCell align="center">Status</TableCell>
+                <TableCell>Exp. Del Dt</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>

@@ -772,7 +772,7 @@ export default function PriceAnalysisPage() {
                     direction={orderBy === 'product_name' ? orderDir : 'asc'}
                     onClick={() => handleSort('product_name')}
                   >
-                    Product Name
+                    Product
                   </TableSortLabel>
                 </TableCell>
 
@@ -781,18 +781,18 @@ export default function PriceAnalysisPage() {
                 {/* Purchase Wise vs Selling Wise specific columns */}
                 {isPurchase ? (
                   <>
-                    <TableCell>Vendor Name</TableCell>
+                    <TableCell>Vendor</TableCell>
                     <TableCell>
                       <TableSortLabel
                         active={orderBy === 'last_date'}
                         direction={orderBy === 'last_date' ? orderDir : 'asc'}
                         onClick={() => handleSort('last_date')}
                       >
-                        Last Purchase Date
+                        Last Pur. Dt
                       </TableSortLabel>
                     </TableCell>
-                    <TableCell>Purchase Entry Number</TableCell>
-                    <TableCell align="right">Purchase Quantity</TableCell>
+                    <TableCell>PE No</TableCell>
+                    <TableCell align="right">Purchase Qty</TableCell>
                     <TableCell align="right">
                       <TableSortLabel
                         active={orderBy === 'last_rate'}
@@ -808,7 +808,7 @@ export default function PriceAnalysisPage() {
                         direction={orderBy === 'min_rate' ? orderDir : 'asc'}
                         onClick={() => handleSort('min_rate')}
                       >
-                        Minimum Purchase Rate
+                        Min Purchase Rate
                       </TableSortLabel>
                     </TableCell>
                     <TableCell align="right">
@@ -817,27 +817,27 @@ export default function PriceAnalysisPage() {
                         direction={orderBy === 'max_rate' ? orderDir : 'asc'}
                         onClick={() => handleSort('max_rate')}
                       >
-                        Maximum Purchase Rate
+                        Max Purchase Rate
                       </TableSortLabel>
                     </TableCell>
-                    <TableCell>Purchase Unit</TableCell>
-                    <TableCell>Purchase Currency</TableCell>
+                    <TableCell>Pur. Unit</TableCell>
+                    <TableCell>Pur. Currency</TableCell>
                   </>
                 ) : (
                   <>
-                    <TableCell>Customer Name</TableCell>
+                    <TableCell>Customer</TableCell>
                     <TableCell>
                       <TableSortLabel
                         active={orderBy === 'last_date'}
                         direction={orderBy === 'last_date' ? orderDir : 'asc'}
                         onClick={() => handleSort('last_date')}
                       >
-                        Last Selling Date
+                        Last Selling Dt
                       </TableSortLabel>
                     </TableCell>
-                    <TableCell>Sales Order Number</TableCell>
-                    <TableCell>Dispatch Number</TableCell>
-                    <TableCell align="right">Sold Quantity</TableCell>
+                    <TableCell>Sales Order No</TableCell>
+                    <TableCell>Dispatch No</TableCell>
+                    <TableCell align="right">Sold Qty</TableCell>
                     <TableCell align="right">
                       <TableSortLabel
                         active={orderBy === 'last_rate'}
@@ -853,7 +853,7 @@ export default function PriceAnalysisPage() {
                         direction={orderBy === 'min_rate' ? orderDir : 'asc'}
                         onClick={() => handleSort('min_rate')}
                       >
-                        Minimum Selling Rate
+                        Min Selling Rate
                       </TableSortLabel>
                     </TableCell>
                     <TableCell align="right">
@@ -862,7 +862,7 @@ export default function PriceAnalysisPage() {
                         direction={orderBy === 'max_rate' ? orderDir : 'asc'}
                         onClick={() => handleSort('max_rate')}
                       >
-                        Maximum Selling Rate
+                        Max Selling Rate
                       </TableSortLabel>
                     </TableCell>
                     <TableCell>Selling Unit</TableCell>
@@ -988,26 +988,7 @@ export default function PriceAnalysisPage() {
               )}
             </TableBody>
 
-            {/* Bottom Summary Row */}
-            {sortedRows.length > 0 && (
-              <TableFooter>
-                <TableRow sx={{ '& td': { bgcolor: '#f1f5f9', fontWeight: 700, fontSize: '0.82rem', py: 1.5, px: 1 } }}>
-                  <TableCell colSpan={isPurchase ? 6 : 6} align="right">
-                    Overall Summary ({sortedRows.length} Products):
-                  </TableCell>
-                  <TableCell align="right" sx={{ color: palette.teal }}>
-                    Latest Value: ₹{fmtNum(dynamicSummary.latest_total_value, 2)}
-                  </TableCell>
-                  <TableCell align="right" sx={{ color: '#059669' }}>
-                    Min: ₹{fmtNum(dynamicSummary.min_rate, 2)}
-                  </TableCell>
-                  <TableCell align="right" sx={{ color: '#ea580c' }}>
-                    Max: ₹{fmtNum(dynamicSummary.max_rate, 2)}
-                  </TableCell>
-                  <TableCell colSpan={isPurchase ? 2 : 1} />
-                </TableRow>
-              </TableFooter>
-            )}
+            
           </Table>
         </TableContainer>
 
