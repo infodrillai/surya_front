@@ -10,7 +10,7 @@ import { fmtNum } from '../lib/format';
 export const labelOf = (master, r) => {
   if (master === 'Product') {
     const ratioPart = r.ratio != null ? ` (Ratio: ${r.ratio})` : '';
-    return `${r.product_code} · ${r.product_name}${ratioPart}`;
+    return `${r.product_name || r.product_code || r.name}${ratioPart}`;
   }
   return r.name;
 };
@@ -64,12 +64,19 @@ function LinkInput({ f, rf, error, disabled, options, labels, rowPath, setValue,
         />
       )}
       sx={{
-        minWidth: f.minWidth ?? 170,
+        minWidth: f.minWidth ?? (rowPath ? 130 : 170),
         width: '100%',
         '& .MuiAutocomplete-endAdornment': disabled ? { display: 'none' } : undefined,
+        '& .MuiInputBase-root': rowPath ? {
+          fontSize: '0.8rem',
+          height: 32,
+          py: 0.25,
+          px: 0.5,
+        } : undefined,
         '& .MuiInputBase-input': {
-          fontSize: '0.82rem',
+          fontSize: '0.8rem',
           textOverflow: 'ellipsis',
+          py: 0.25,
         },
       }}
     />
@@ -125,7 +132,29 @@ export default function Field({ f, name, control, disabled, rowPath, setValue, g
           : <ServerLink {...{ f, rf, error, rowPath, setValue, getValues }} disabled={off} />;
         if (f.readOnly) {
           const num = ['number', 'currency', 'percent'].includes(f.type);
-          return <TextField label={f.label} value={num ? fmtNum(rf.value, f.dp ?? (f.type === 'currency' ? 2 : 3)) : rf.value ?? ''} disabled sx={{ minWidth: f.minWidth ?? 110 }} />;
+          return (
+            <TextField
+              label={f.label}
+              value={num ? fmtNum(rf.value, f.dp ?? (f.type === 'currency' ? 2 : 3)) : rf.value ?? ''}
+              disabled
+              size="small"
+              sx={{
+                minWidth: f.minWidth ?? (rowPath ? 50 : 110),
+                width: '100%',
+                '& .MuiInputBase-root': rowPath ? {
+                  fontSize: '0.8rem',
+                  height: 32,
+                  bgcolor: 'action.hover',
+                } : undefined,
+                '& .MuiInputBase-input': rowPath ? {
+                  py: 0.25,
+                  px: 0.5,
+                  fontSize: '0.8rem',
+                  textAlign: num ? 'right' : 'left',
+                } : undefined,
+              }}
+            />
+          );
         }
 
         const isNum = ['number', 'currency', 'percent'].includes(f.type);
@@ -169,6 +198,7 @@ export default function Field({ f, name, control, disabled, rowPath, setValue, g
             disabled={off}
             error={!!error}
             helperText={error?.message}
+            size="small"
             select={f.type === 'select'}
             multiline={f.type === 'textarea'}
             minRows={f.type === 'textarea' ? 2 : undefined}
@@ -177,7 +207,20 @@ export default function Field({ f, name, control, disabled, rowPath, setValue, g
               inputLabel: f.type === 'date' ? { shrink: true } : undefined,
               htmlInput: isNum ? { step: 'any', min: f.allowNegative ? undefined : 0 } : undefined,
             }}
-            sx={{ minWidth: f.minWidth ?? 110 }}
+            sx={{
+              minWidth: f.minWidth ?? (rowPath ? 50 : 110),
+              width: '100%',
+              '& .MuiInputBase-root': rowPath ? {
+                fontSize: '0.8rem',
+                height: 32,
+              } : undefined,
+              '& .MuiInputBase-input': rowPath ? {
+                py: 0.25,
+                px: 0.5,
+                fontSize: '0.8rem',
+                textAlign: isNum ? 'right' : 'left',
+              } : undefined,
+            }}
             onChange={handleFieldChange}
             onFocus={handleFocusOrClick}
             onClick={handleFocusOrClick}

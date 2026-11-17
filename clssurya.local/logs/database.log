@@ -1,2 +1,24 @@
 2026-10-27 07:16:00,477 WARNING database DDL Query made to DB:
 ALTER TABLE `tabPurchase Entry` ADD COLUMN gst_percent DECIMAL(21,9) DEFAULT 0.0 AFTER extra_charges
+2026-11-17 04:32:51,670 WARNING database DDL Query made to DB:
+ALTER TABLE `tabProduct` ADD COLUMN `company_code` varchar(140) DEFAULT ''
+2026-11-17 04:32:51,711 WARNING database DDL Query made to DB:
+ALTER TABLE `tabProduct` ADD COLUMN `competitor_company_code` varchar(140) DEFAULT ''
+2026-11-17 04:32:51,758 WARNING database DDL Query made to DB:
+ALTER TABLE `tabQuotation Item` ADD COLUMN `product_code` varchar(140) DEFAULT ''
+2026-11-17 04:32:51,805 WARNING database DDL Query made to DB:
+ALTER TABLE `tabQuotation Item` ADD COLUMN `production_code` varchar(140) DEFAULT ''
+2026-11-17 04:32:51,851 WARNING database DDL Query made to DB:
+ALTER TABLE `tabQuotation Item` ADD COLUMN `company_code` varchar(140) DEFAULT ''
+2026-11-17 04:32:51,895 WARNING database DDL Query made to DB:
+ALTER TABLE `tabQuotation Item` ADD COLUMN `competitor_company_code` varchar(140) DEFAULT ''
+2026-11-17 04:32:51,937 WARNING database DDL Query made to DB:
+ALTER TABLE `tabQuotation Item` ADD COLUMN `last_selling_price` decimal(21,9) DEFAULT 0.0
+2026-11-17 04:32:52,036 WARNING database DDL Query made to DB:
+CREATE INDEX `idx_dispatch_cust_status_date` ON `tabDispatch` (`customer`, `dispatch_status`, `dispatch_date`)
+2026-11-17 04:32:52,128 WARNING database DDL Query made to DB:
+CREATE INDEX `idx_dispatch_item_prod` ON `tabDispatch Item` (`product`)
+2026-11-17 04:32:52,205 WARNING database DDL Query made to DB:
+CREATE INDEX `idx_so_cust_status_date` ON `tabSales Order` (`customer`, `status`, `order_date`)
+2026-11-17 04:32:52,277 WARNING database DDL Query made to DB:
+CREATE INDEX `idx_so_item_prod` ON `tabSales Order Item` (`product`)

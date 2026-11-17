@@ -20,6 +20,7 @@ import BadgeIcon from '@mui/icons-material/BadgeOutlined';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import AnalyticsIcon from '@mui/icons-material/AnalyticsOutlined';
 import SpaceDashboardIcon from '@mui/icons-material/SpaceDashboardOutlined';
+import StorefrontIcon from '@mui/icons-material/StorefrontOutlined';
 
 const ADMIN = 'CS Admin', STORE = 'CS Store', PROD = 'CS Production', SALES = 'CS Sales', SALES_PERSON = 'Sales Person';
 
@@ -64,6 +65,7 @@ export const ADMIN_MENU = [
       { label: 'Outstanding', path: '/customer-outstanding', icon: AccountBalanceWalletIcon },
       { label: 'Charge', path: '/charge', icon: DescriptionIcon },
       { label: 'Inventory', path: '/inventory', icon: WarehouseIcon },
+      { label: 'Store', path: '/store', icon: StorefrontIcon },
       { label: 'Dispatch', path: '/dispatch', icon: LocalShippingIcon },
       { label: 'Goods Receipt', path: '/goods-receipt', icon: ReceiptIcon },
       { label: 'Returns', path: '/customer-return', icon: ReceiptIcon },
@@ -94,6 +96,7 @@ export const SALES_MENU = [
       { label: 'My Quotations', path: '/quotation', icon: RequestQuoteIcon, roles: [SALES_PERSON, SALES] },
       { label: 'My Sales Orders', path: '/sales-order', icon: ReceiptIcon, roles: [SALES_PERSON, SALES] },
       { label: 'Dispatch Tracking', path: '/dispatch', icon: LocalShippingIcon, roles: [SALES_PERSON, SALES] },
+      { label: 'Store', path: '/store', icon: StorefrontIcon, roles: [SALES_PERSON, SALES] },
       { label: 'Pending Dispatch Analysis', path: '/pending-dispatch-analysis', icon: LocalShippingIcon, roles: [SALES_PERSON, SALES] },
       { label: 'Price Analysis', path: '/price-analysis', icon: AssessmentIcon, roles: [SALES_PERSON, SALES] },
       { label: 'Customer Returns', path: '/customer-return', icon: ReceiptIcon, roles: [SALES_PERSON, SALES] },

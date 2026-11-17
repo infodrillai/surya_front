@@ -5,7 +5,7 @@ import { beltBatchConfig } from './beltBatchResource';
  *   readOnly?:boolean,readOnlyOnEdit?:boolean,summary?:boolean,positive?:boolean,showIf?:Function,options?:string[]}} FieldConfig
  */
 import React from 'react';
-import { enhanceQuotation, quotationMasters, getEffectiveQuotationStatus, fetchProductInfo } from '../lib/quotationFeatures';
+import { enhanceQuotation, quotationMasters, getEffectiveQuotationStatus, fetchProductInfo, setProduct } from '../lib/quotationFeatures';
 import { Box, Button, Chip, LinearProgress, Stack, Typography } from '@mui/material';
 import AssignmentReturnIcon from '@mui/icons-material/AssignmentReturn';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -127,6 +127,8 @@ const product = {
     t('product_code', 'Product code', { required: true, readOnlyOnEdit: true }),
     // NEW – Production Code (separate from product_code, used on finished-goods transfer)
     t('production_code', 'Production Code', { required: false }),
+    t('company_code', 'Company Code', { required: false }),
+    t('competitor_company_code', 'Competitor Company Code', { required: false }),
     sel('product_type', 'Product type', ['Raw', 'Semi', 'Finished'], { required: true, default: () => 'Raw' }),
     sel('finished_good_type', 'Finished Good Type', ['PU', 'Belt'], {
       showIf: (v) => v.product_type === 'Finished' || v.product_type === 'Semi',
@@ -448,7 +450,7 @@ export function GoodsReceiptDialogHost() {
 }
 
 // ---- Purchase Order --------------------------------------------------------
-const purchase = {
+export const purchase = {
   doctype: 'Purchase Entry',
   title: 'Purchase Order',
   plural: 'Purchase Orders',
@@ -688,28 +690,38 @@ const soLineCalc = (row) => {
 
 const salesRow = [
   {
+    name: 'image',
+    label: 'Img',
+    type: 'image',
+    readOnly: true,
+    minWidth: 36,
+  },
+  {
     ...link('product', 'Product', 'Product', {
       required: true,
-      minWidth: 220,
+      minWidth: 150,
       labelField: 'product_name',
-      onChange: async (row) => {
-        const info = await fetchProductInfo(row.product);
-        row.uom = info.uom;
-        row.production_cost = info.production_cost;
-        const { rate, amount } = soLineCalc({ ...row, production_cost: info.production_cost });
-        row.rate = rate;
-        row.amount = amount;
+      onChange: async (row, ctx) => {
+        await setProduct(row, ctx);
+        const r = soLineCalc(row);
+        row.rate = r.rate;
+        row.amount = r.amount;
       },
     }),
   },
-  ro(t('uom', 'UOM')),
-  ro(cur('production_cost', 'Cost / unit', { dp: 4 })),
-  num('quantity', 'Qty', { positive: true, onChange: (row) => { const r = soLineCalc(row); row.rate = r.rate; row.amount = r.amount; } }),
-  num('pr', 'PR (%)', { dp: 2, default: () => 0, onChange: (row) => { const r = soLineCalc(row); row.rate = r.rate; row.amount = r.amount; } }),
-  cur('rate', 'Rate', { dp: 4, onChange: (row) => { const r = soLineCalc(row); row.amount = r.amount; } }),
-  num('gst_percent', 'GST (%)', { min: 0, max: 100, default: () => 0, onChange: (row) => { const r = soLineCalc(row); row.rate = r.rate; row.amount = r.amount; } }),
-  num('item_discount_percent', 'Discount (%)', { min: 0, max: 100, default: () => 0, onChange: (row) => { const r = soLineCalc(row); row.amount = r.amount; } }),
-  ro(cur('amount', 'Amount')),
+  { ...ro(t('product_code', 'Product Code')), minWidth: 75 },
+  { ...ro(t('production_code', 'Prod. Code')), minWidth: 70 },
+  { ...ro(t('company_code', 'Co. Code')), minWidth: 65 },
+  { ...ro(t('competitor_company_code', 'Comp. Code')), minWidth: 70 },
+  { ...ro(t('uom', 'UOM')), minWidth: 50 },
+  { ...ro(cur('production_cost', 'Cost unit', { dp: 4 })), minWidth: 70 },
+  num('quantity', 'Qty', { positive: true, minWidth: 55, onChange: (row) => { const r = soLineCalc(row); row.rate = r.rate; row.amount = r.amount; } }),
+  num('pr', 'PR (%)', { dp: 2, default: () => 0, minWidth: 50, onChange: (row) => { const r = soLineCalc(row); row.rate = r.rate; row.amount = r.amount; } }),
+  cur('rate', 'Rate', { dp: 4, minWidth: 70, onChange: (row) => { const r = soLineCalc(row); row.amount = r.amount; } }),
+  num('gst_percent', 'GST(%)', { min: 0, max: 100, default: () => 0, minWidth: 50, onChange: (row) => { const r = soLineCalc(row); row.rate = r.rate; row.amount = r.amount; } }),
+  num('item_discount_percent', 'Discount(%)', { min: 0, max: 100, default: () => 0, minWidth: 55, onChange: (row) => { const r = soLineCalc(row); row.amount = r.amount; } }),
+  { ...ro(cur('last_selling_price', 'Last Sold', { dp: 2 })), minWidth: 75 },
+  { ...ro(cur('amount', 'Amount')), minWidth: 75 },
 ];
 
 
@@ -736,6 +748,12 @@ const quotationRow = [
         const info = await fetchProductInfo(row.product);
         row.uom = info.uom;
         row.production_cost = info.production_cost;
+        row.image = info.image || '';
+        row.product_code = info.product_code || '';
+        row.production_code = info.production_code || '';
+        row.company_code = info.company_code || '';
+        row.competitor_company_code = info.competitor_company_code || '';
+        row.last_selling_price = info.last_selling_price || 0;
         // Recalculate rate & amount with the new cost
         const { rate, amount } = quotationLineCalc({ ...row, production_cost: info.production_cost });
         row.rate = rate;
@@ -743,12 +761,22 @@ const quotationRow = [
       },
     }),
   },
+  {
+    name: 'image',
+    label: 'Img',
+    type: 'image',
+    readOnly: true,
+    minWidth: 36,
+  },
+  { ...ro(t('product_code', 'Product Code')), minWidth: 75 },
+  { ...ro(t('production_code', 'Prod. Code')), minWidth: 70 },
   ro(t('uom', 'UOM')),
   ro(cur('production_cost', 'Cost / unit', { dp: 4 })),
   num('quantity', 'Qty', { positive: true, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }),
   num('pr', 'PR (%)', { dp: 2, default: () => 0, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }),
   num('gst_percent', 'GST (%)', { min: 0, max: 100, default: () => 0, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }),
   ro(cur('rate', 'Rate', { dp: 4 })),     // Cost/unit × (1 + PR%) × (1 + GST%) — auto-calculated
+  { ...ro(cur('last_selling_price', 'Last Sold', { dp: 2 })), minWidth: 75 },
   ro(cur('amount', 'Amount')),
 ];
 
@@ -765,7 +793,27 @@ const quotation = {
   isLocked: (d) => ['Superseded', 'Accepted', 'Rejected', 'Disapproved'].includes(getEffectiveQuotationStatus ? getEffectiveQuotationStatus(d) : d?.status),
 
   fields: [
-    link('customer', 'Customer', 'Customer', { required: true }),
+    link('customer', 'Customer', 'Customer', {
+      required: true,
+      onChange: async (values) => {
+        // When customer changes, refresh last_selling_price for all existing items
+        const customer = values.customer;
+        const items = values.items;
+        if (!customer || !Array.isArray(items) || !items.length) return;
+        const { call: apiCall } = await import('../api/client');
+        for (const row of items) {
+          if (!row.product) continue;
+          try {
+            const priceResult = await apiCall('clssurya.api.get_last_selling_price', { customer, product: row.product }, { get: true });
+            if (priceResult?.has_history) {
+              row.last_selling_price = priceResult.last_selling_price || 0;
+            } else {
+              row.last_selling_price = 0;
+            }
+          } catch (_) {}
+        }
+      },
+    }),
     date('quotation_date', 'Date'),
     link('sales_person', 'Sales Person', 'Sales Person', { readOnly: true, showIf: (_, ctx) => !ctx?.isNew }),
 
@@ -1088,10 +1136,84 @@ const salesOrder = {
   usesFinishedCost: true,
   subtitle: 'Admin approves. Stock is deducted only when goods are dispatched.',
 
-  isLocked: (d) => !!d?.status && d.status !== 'Pending Approval',
+  isLocked: (d) => {
+    if (!d) return false;
+    const hasDispatches = (d.items || []).some((i) => Number(i.dispatched_qty) > 0);
+    if (hasDispatches) return true;
+    if (['Dispatched', 'Partially Dispatched', 'Completed'].includes(d.status)) return true;
+    return !!d.status && d.status !== 'Pending Approval' && d.status !== 'Draft';
+  },
 
   fields: [
-    link('customer', 'Customer', 'Customer', { required: true }),
+    link('quotation', 'Quotation', 'Quotation', {
+      readOnlyOnEdit: true,
+      filter: (r) => ['Approved', 'Accepted'].includes(r.status),
+      onChange: async (values) => {
+        if (!values.quotation) return;
+        try {
+          const qDoc = await getDoc('Quotation', values.quotation);
+          if (qDoc) {
+            if (qDoc.customer) values.customer = qDoc.customer;
+            if (qDoc.sales_person) values.sales_person = qDoc.sales_person;
+            if (qDoc.discount_percent != null) values.discount_percent = Number(qDoc.discount_percent) || 0;
+            if (qDoc.gst_percent != null) values.gst_percent = Number(qDoc.gst_percent) || 0;
+            if (qDoc.packing_charges != null) values.packing_charges = Number(qDoc.packing_charges) || 0;
+            if (qDoc.transport_charges != null) values.transport_charges = Number(qDoc.transport_charges) || 0;
+            if (Array.isArray(qDoc.items) && qDoc.items.length) {
+              const loaded = await Promise.all(
+                qDoc.items.map(async (qi) => {
+                  const info = await fetchProductInfo(qi.product);
+                  const row = {
+                    quotation_item: qi.name || '',
+                    product: qi.product,
+                    image: qi.image || info.image || '',
+                    product_code: qi.product_code || info.product_code || '',
+                    production_code: qi.production_code || info.production_code || '',
+                    company_code: qi.company_code || info.company_code || '',
+                    competitor_company_code: qi.competitor_company_code || info.competitor_company_code || '',
+                    uom: qi.uom || info.uom || '',
+                    production_cost: Number(qi.production_cost) || Number(info.production_cost) || 0,
+                    quantity: Number(qi.quantity) || 1,
+                    pr: Number(qi.pr) || 0,
+                    rate: Number(qi.rate) || 0,
+                    gst_percent: qi.gst_percent != null ? Number(qi.gst_percent) : (Number(qDoc.gst_percent) || 0),
+                    item_discount_percent: qi.item_discount_percent != null ? Number(qi.item_discount_percent) : 0,
+                    last_selling_price: Number(qi.last_selling_price) || Number(info.last_selling_price) || 0,
+                    dispatched_qty: 0,
+                    returned_qty: 0,
+                    net_delivered_qty: 0,
+                    pending_qty: Number(qi.quantity) || 1,
+                  };
+                  const calc = soLineCalc(row);
+                  row.rate = row.rate || calc.rate;
+                  row.amount = calc.amount;
+                  return row;
+                })
+              );
+              values.items = loaded;
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to load quotation details into sales order:', e);
+        }
+      },
+    }),
+    link('customer', 'Customer', 'Customer', {
+      required: true,
+      onChange: async (values) => {
+        const customer = values.customer;
+        const items = values.items;
+        if (!customer || !Array.isArray(items) || !items.length) return;
+        const { call: apiCall } = await import('../api/client');
+        for (const row of items) {
+          if (!row.product) continue;
+          try {
+            const priceResult = await apiCall('clssurya.api.get_last_selling_price', { customer, product: row.product }, { get: true });
+            row.last_selling_price = priceResult?.has_history ? (priceResult.last_selling_price || 0) : 0;
+          } catch (_) {}
+        }
+      },
+    }),
     date('order_date', 'Date'),
     link('sales_person', 'Sales Person', 'Sales Person', { readOnly: true, showIf: (_, ctx) => !ctx?.isNew }),
     // ---- Summary panel ----
@@ -1110,15 +1232,83 @@ const salesOrder = {
     name: 'items',
     label: 'Items',
     fields: [
-      // salesRow already has: product, uom, production_cost, qty, pr, rate, gst%, discount%, amount
       ...salesRow,
-      ro(num('dispatched_qty', 'Dispatched')),
-      ro(num('returned_qty', 'Returned')),
-      ro(num('net_delivered_qty', 'Delivered')),
-      ro(num('pending_qty', 'Pending')),
+      ro(num('dispatched_qty', 'Dispatched', { minWidth: 60 })),
+      ro(num('pending_qty', 'Pending', { minWidth: 55 })),
     ],
-    newRow: () => ({ quantity: '', pr: 0, gst_percent: 0, item_discount_percent: 0, rate: '' }),
+    newRow: () => ({ quantity: 1, pr: 0, gst_percent: 0, item_discount_percent: 0, rate: '' }),
   }],
+
+  fixItems: async (items, doc) => {
+    let quotationDoc = null;
+    const qName = doc?.quotation || doc?.prevdoc_docname;
+    if (qName) {
+      try {
+        quotationDoc = await getDoc('Quotation', qName);
+      } catch (e) {
+        console.warn('Could not load base quotation for sales order:', e);
+      }
+    }
+
+    const qItemMap = new Map();
+    if (quotationDoc?.items) {
+      quotationDoc.items.forEach((qi, idx) => {
+        if (qi.name) qItemMap.set(qi.name, qi);
+        if (qi.product && !qItemMap.has(qi.product)) qItemMap.set(qi.product, qi);
+      });
+    }
+
+    const fixed = await Promise.all(
+      (items || []).map(async (row, idx) => {
+        if (!row.product) return row;
+        const qi = (row.quotation_item && qItemMap.get(row.quotation_item)) ||
+                   qItemMap.get(row.product) ||
+                   (quotationDoc?.items && quotationDoc.items[idx]?.product === row.product ? quotationDoc.items[idx] : null);
+
+        const info = await fetchProductInfo(row.product);
+
+        const image = row.image || qi?.image || info.image || '';
+        const production_cost = (Number(row.production_cost) > 0 ? Number(row.production_cost) : null) ??
+                                (Number(qi?.production_cost) > 0 ? Number(qi?.production_cost) : null) ??
+                                Number(info.production_cost) ?? 0;
+        const pr = (row.pr != null && row.pr !== '' && Number(row.pr) !== 0 ? Number(row.pr) : null) ??
+                   (qi?.pr != null && qi.pr !== '' ? Number(qi.pr) : null) ?? 0;
+        const gst_percent = (row.gst_percent != null && row.gst_percent !== '' && Number(row.gst_percent) !== 0 ? Number(row.gst_percent) : null) ??
+                            (qi?.gst_percent != null && qi.gst_percent !== '' ? Number(qi.gst_percent) : null) ??
+                            (quotationDoc?.gst_percent != null ? Number(quotationDoc.gst_percent) : 0);
+        const item_discount_percent = (row.item_discount_percent != null && row.item_discount_percent !== '' && Number(row.item_discount_percent) !== 0 ? Number(row.item_discount_percent) : null) ??
+                                      (qi?.item_discount_percent != null && qi.item_discount_percent !== '' ? Number(qi.item_discount_percent) : null) ?? 0;
+
+        const product_code = row.product_code || qi?.product_code || info.product_code || '';
+        const production_code = row.production_code || qi?.production_code || info.production_code || '';
+        const company_code = row.company_code || qi?.company_code || info.company_code || '';
+        const competitor_company_code = row.competitor_company_code || qi?.competitor_company_code || info.competitor_company_code || '';
+        const uom = row.uom || qi?.uom || info.uom || '';
+        const last_selling_price = Number(row.last_selling_price) || Number(qi?.last_selling_price) || Number(info.last_selling_price) || 0;
+
+        const updated = {
+          ...row,
+          image,
+          product_code,
+          production_code,
+          company_code,
+          competitor_company_code,
+          uom,
+          production_cost,
+          pr,
+          gst_percent,
+          item_discount_percent,
+          last_selling_price,
+        };
+
+        const calc = soLineCalc(updated);
+        updated.rate = Number(row.rate) || Number(qi?.rate) || calc.rate;
+        updated.amount = calc.amount;
+        return updated;
+      })
+    );
+    return fixed;
+  },
 
   compute: (v, ctx) => {
     // Recalculate each line: rate = cost*(1+pr%)*(1+gst%), amount = qty*rate*(1-disc%)
@@ -1299,6 +1489,11 @@ const dispatch = {
   completable: false,
   usesFinishedCost: true,
   subtitle: 'Ship against an approved order. Mark as Dispatched deducts Finished stock.',
+  isLocked: (d) => {
+    if (!d) return false;
+    const s = d.dispatch_status || d.status;
+    return !!s && s !== 'Draft';
+  },
   fields: [
     { name: 'sales_order', label: 'Sales order', type: 'link', doctype: 'Sales Order', required: true, readOnlyOnEdit: true, filter: (r) => ['Approved', 'Partially Dispatched'].includes(r.status), minWidth: 240 },
     ro(t('customer', 'Customer')),
@@ -1537,6 +1732,7 @@ const goodsReceipt = {
   plural: 'Goods Receipts',
   completable: false,
   readOnlyList: false,
+  isLocked: () => true, // Goods Receipts are confirmed stock documents; view-only
   subtitle: 'Confirmed vendor receipts. Receiving goods increases Raw inventory.',
   fields: [
     link('purchase_order', 'Purchase Order', 'Purchase Entry', { required: true, readOnlyOnEdit: true }),

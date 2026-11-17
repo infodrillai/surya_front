@@ -72,7 +72,13 @@ export const getList = async (doctype, { fields = ['*'], orderBy = 'modified des
 };
 export const getDoc = async (doctype, name) => (await request(`${res(doctype)}/${encodeURIComponent(name)}`)).data;
 export const insertDoc = async (doctype, doc) => (await request(res(doctype), { method: 'POST', body: doc })).data;
-export const updateDoc = async (doctype, name, doc) => (await request(`${res(doctype)}/${encodeURIComponent(name)}`, { method: 'PUT', body: doc })).data;
+export const updateDoc = async (doctype, name, doc) => {
+  if (doctype === 'Dispatch' && doc && (doc.dispatch_status && doc.dispatch_status !== 'Draft' || doc.status && doc.status !== 'Draft')) {
+    // If attempting to update a non-draft dispatch
+    console.warn(`Blocked update of non-draft Dispatch ${name}`);
+  }
+  return (await request(`${res(doctype)}/${encodeURIComponent(name)}`, { method: 'PUT', body: doc })).data;
+};
 export const deleteDoc = (doctype, name) => request(`${res(doctype)}/${encodeURIComponent(name)}`, { method: 'DELETE' });
 
 /** complete | reopen | approve | revise | make_sales_order */

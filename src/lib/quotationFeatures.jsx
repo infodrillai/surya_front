@@ -639,6 +639,11 @@ export async function fetchProductInfo(productName) {
     last_selling_price: lastSelling,
     last_purchase_price: lastPurchase,
     raw_material_cost: rawCost,
+    // Product metadata for quotation columns
+    product_code: doc?.product_code || productName || '',
+    production_code: doc?.production_code || '',
+    company_code: doc?.company_code || '',
+    competitor_company_code: doc?.competitor_company_code || '',
   };
 }
 
@@ -738,7 +743,7 @@ export function recomputeLine(row) {
   row.amount = gross - discountAmt;
 }
 
-export async function setProduct(row) {
+export async function setProduct(row, { values } = {}) {
   if (!row.product) return;
   const product = row.product;
   const info = await fetchProductInfo(product);
@@ -754,6 +759,31 @@ export async function setProduct(row) {
   row.conversion_factor = Number(row.conversion_factor) || 1;
   row.reference_exchange_rate = 1;
   row.pricing_mode = 'Percentage';
+
+  // Set product metadata columns (product_code, production_code, company_code, competitor_company_code)
+  if (info.product_code) row.product_code = info.product_code;
+  if (info.production_code !== undefined) row.production_code = info.production_code || '';
+  if (info.company_code !== undefined) row.company_code = info.company_code || '';
+  if (info.competitor_company_code !== undefined) row.competitor_company_code = info.competitor_company_code || '';
+
+  // Fetch customer-wise last selling price if customer is available
+  const customer = row._customer || values?.customer;
+  if (customer && product) {
+    try {
+      const priceResult = await call('clssurya.api.get_last_selling_price', { customer, product }, { get: true });
+      if (priceResult && priceResult.has_history) {
+        row.last_selling_price = priceResult.last_selling_price || 0;
+        row._last_selling_price_ref = priceResult.source_ref || '';
+        row._last_selling_price_date = priceResult.transaction_date || '';
+      } else {
+        row.last_selling_price = 0;
+        row._last_selling_price_ref = '';
+        row._last_selling_price_date = '';
+      }
+    } catch (_) {
+      // Keep product-info fallback value
+    }
+  }
 
   recomputeLine(row);
 }
@@ -789,10 +819,10 @@ export function enhanceQuotation(config) {
   config.tables[0].fields = [
     {
       name: 'image',
-      label: 'Product img',
+      label: 'Img',
       type: 'image',
       readOnly: true,
-      minWidth: 44,
+      minWidth: 36,
     },
     {
       name: 'product',
@@ -800,11 +830,27 @@ export function enhanceQuotation(config) {
       type: 'link',
       master: 'Product',
       required: true,
-      minWidth: 240,
+      minWidth: 150,
       labelField: 'product_name',
-      onChange: async (row) => {
-        await setProduct(row);
+      onChange: async (row, ctx) => {
+        await setProduct(row, ctx);
       },
+    },
+    {
+      ...read('product_code', 'Product Code'),
+      minWidth: 75,
+    },
+    {
+      ...read('production_code', 'Prod. Code'),
+      minWidth: 70,
+    },
+    {
+      ...read('company_code', 'Co. Code'),
+      minWidth: 65,
+    },
+    {
+      ...read('competitor_company_code', 'Comp. Code'),
+      minWidth: 70,
     },
     {
       name: 'uom',
@@ -812,18 +858,18 @@ export function enhanceQuotation(config) {
       type: 'link',
       master: 'UOM',
       required: true,
-      minWidth: 70,
+      minWidth: 50,
     },
     {
       ...read('production_cost', 'Cost unit'),
       type: 'currency',
       dp: 4,
-      minWidth: 85,
+      minWidth: 70,
     },
     number('quantity', 'Qty', {
       positive: true,
       required: true,
-      minWidth: 65,
+      minWidth: 55,
       onChange: (row) => {
         recomputeLine(row);
       },
@@ -832,7 +878,7 @@ export function enhanceQuotation(config) {
       allowNegative: true,
       dp: 2,
       default: () => 0,
-      minWidth: 65,
+      minWidth: 50,
       onChange: (row) => {
         row.pricing_mode = 'Percentage';
         recomputeLine(row);
@@ -843,7 +889,7 @@ export function enhanceQuotation(config) {
       label: 'Rate',
       type: 'currency',
       dp: 4,
-      minWidth: 85,
+      minWidth: 70,
       readOnly: false,
       onChange: (row, { values } = {}) => {
         row.pricing_mode = 'Rate';
@@ -851,29 +897,35 @@ export function enhanceQuotation(config) {
         recomputeLine(row);
       },
     },
-    number('gst_percent', 'GST (%)', {
+    number('gst_percent', 'GST(%)', {
       min: 0,
       max: 100,
       default: () => 0,
-      minWidth: 65,
+      minWidth: 50,
       onChange: (row) => {
         recomputeLine(row);
       },
     }),
-    number('item_discount_percent', 'Discount (%)', {
+    number('item_discount_percent', 'Discount(%)', {
       min: 0,
       max: 100,
       default: () => 0,
-      minWidth: 70,
+      minWidth: 55,
       onChange: (row) => {
         recomputeLine(row);
       },
     }),
     {
+      ...read('last_selling_price', 'Last Sold'),
+      type: 'currency',
+      dp: 2,
+      minWidth: 75,
+    },
+    {
       ...read('amount', 'Amount'),
       type: 'currency',
       dp: 2,
-      minWidth: 90,
+      minWidth: 75,
     },
   ];
 

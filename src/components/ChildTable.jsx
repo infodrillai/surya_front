@@ -20,17 +20,28 @@ export default function ChildTable({ table, control, disabled, registry, setValu
 
   return (
     <Box>
-      <TableContainer sx={{ border: 1, borderColor: 'divider', borderRadius: 2, maxWidth: '100%' }}>
-        <Table size="small" sx={{ width: '100%', '& .MuiTableCell-root': { px: 0.6, py: 0.5 } }}>
+      <TableContainer
+        sx={{
+          border: 1,
+          borderColor: 'divider',
+          borderRadius: 2,
+          maxWidth: '100%',
+          overflowX: 'auto',
+          scrollbarWidth: 'thin',
+          '&::-webkit-scrollbar': { height: 5 },
+          '&::-webkit-scrollbar-thumb': { backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: 3 },
+        }}
+      >
+        <Table size="small" sx={{ width: '100%', minWidth: '100%', '& .MuiTableCell-root': { px: 0.35, py: 0.35 } }}>
           <TableHead>
-            <TableRow>
-              <TableCell width={36} sx={{ px: 0.5, py: 0.75 }}>#</TableCell>
+            <TableRow sx={{ bgcolor: 'action.hover' }}>
+              <TableCell width={30} sx={{ px: 0.4, py: 0.6, fontSize: '0.78rem', fontWeight: 700 }}>#</TableCell>
               {visibleFields.map((f) => (
-                <TableCell key={f.name} sx={{ px: 0.6, py: 0.75, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                <TableCell key={f.name} sx={{ px: 0.4, py: 0.6, fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
                   {f.label}
                 </TableCell>
               ))}
-              {canEdit && !table.noAdd && <TableCell width={40} sx={{ px: 0.5, py: 0.75 }} />}
+              {canEdit && !table.noAdd && <TableCell width={36} sx={{ px: 0.4, py: 0.6 }} />}
             </TableRow>
           </TableHead>
           <TableBody>

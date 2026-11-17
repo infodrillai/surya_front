@@ -103,11 +103,10 @@ export default function DocForm({ config, doc, open, onClose }) {
       loadedKey.current = doc?.name ? config.loadKey?.(d) ?? null : null;
       setTab(0);
 
-      // For quotations with saved items: re-fetch product info for any row
-      // where production_cost is 0 (the server may not have stored it).
-      if (active && quotation && config.fixItems && d.items?.length) {
+      // For quotations and sales orders: re-fetch product info and sync items from base quotation
+      if (active && config.fixItems && d.items?.length) {
         try {
-          const fixedItems = await config.fixItems(d.items);
+          const fixedItems = await config.fixItems(d.items, d);
           if (active && fixedItems) {
             fixedItems.forEach((row, i) => {
               Object.entries(row).forEach(([k, v]) => {
@@ -265,14 +264,24 @@ export default function DocForm({ config, doc, open, onClose }) {
     config.doctype?.includes('Belt Batch')
   );
 
+  const isWideForm = quotation || config.doctype === 'Sales Order';
+
   return (
     <Dialog
       open={open}
       onClose={busy ? undefined : cancel}
       fullScreen={isBatch}
       fullWidth
-      maxWidth={quotation ? 'xl' : 'lg'}
+      maxWidth={isWideForm ? false : (quotation ? 'xl' : 'lg')}
       scroll="paper"
+      sx={isWideForm ? {
+        '& .MuiDialog-paper': {
+          width: '98vw',
+          maxWidth: '1850px',
+          m: 1,
+          maxHeight: '96vh',
+        },
+      } : undefined}
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5, pr: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1 }}>
@@ -287,15 +296,24 @@ export default function DocForm({ config, doc, open, onClose }) {
           </IconButton>
         )}
       </DialogTitle>
-      <DialogContent dividers>
-        <Stack spacing={2.5}>
-          {locked && <Alert severity="info">This document is read-only{doc?.is_completed ? ' because it is completed. An Admin can reopen it.' : '.'}</Alert>}
+      <DialogContent dividers sx={{ px: { xs: 1.5, sm: 2.5 }, py: 1.5 }}>
+        <Stack spacing={2}>
+          {/* {locked && <Alert severity="info">This document is read-only{doc?.is_completed ? ' because it is completed. An Admin can reopen it.' : '.'}</Alert>} */}
           {banner && <Alert severity={banner.severity}>{banner.text}</Alert>}
           {quotation && draftMessage && <Alert severity="info">{draftMessage}</Alert>}
           {config.header?.(values, doc)}
-          <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' } }}>
+          <Box sx={{
+            display: 'grid',
+            gap: 1.5,
+            gridTemplateColumns: {
+              xs: '1fr',
+              sm: 'repeat(2, 1fr)',
+              md: isWideForm ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)',
+              lg: isWideForm ? 'repeat(5, 1fr)' : 'repeat(3, 1fr)',
+            },
+          }}>
             {main.map((f) => (
-              <Box key={f.name} sx={{ gridColumn: f.type === 'textarea' ? '1 / -1' : undefined }}>
+              <Box key={f.name} sx={{ gridColumn: f.type === 'textarea' ? (isWideForm ? 'span 2' : '1 / -1') : undefined }}>
                 <Field f={{ ...f, readOnly: f.readOnly || (f.readOnlyOnEdit && !isNew) }} name={f.name} control={control} disabled={locked} setValue={setValue} getValues={getValues} />
               </Box>
             ))}
