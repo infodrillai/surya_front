@@ -53,6 +53,11 @@ export default defineConfig(({ command, mode }) => {
           changeOrigin: true,
           headers: { 'X-Frappe-Site-Name': siteName },
         },
+        '/files': {
+          target: `http://127.0.0.1:${backendPort}`,
+          changeOrigin: true,
+          headers: { 'X-Frappe-Site-Name': siteName },
+        },
         '/socket.io': {
           target: `http://127.0.0.1:${socketPort}`,
           ws: true,

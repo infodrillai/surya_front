@@ -101,6 +101,7 @@ def create_belt_batch_doctype():
             ],
             "permissions": [
                 {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1},
+                {"role": "Belt Operator", "read": 1, "write": 1, "create": 1},
                 {"role": "All", "read": 1, "write": 1, "create": 1}
             ]
         })

@@ -407,7 +407,7 @@ export default function PriceAnalysisPage() {
                 '&.Mui-selected': {
                   bgcolor: palette.teal,
                   color: '#ffffff',
-                  '&:hover': { bgcolor: '#0b2327' },
+                  '&:hover': { bgcolor: '#1e5956ff' },
                 },
               },
             }}
@@ -423,7 +423,7 @@ export default function PriceAnalysisPage() {
           </ToggleButtonGroup>
 
           <Button
-            variant="outlined"
+            variant="contained"
             size="small"
             startIcon={
               <RefreshRounded
@@ -435,7 +435,16 @@ export default function PriceAnalysisPage() {
             }
             onClick={() => refetch()}
             disabled={isFetching}
-            sx={{ borderRadius: '8px', textTransform: 'none', height: 38 }}
+            sx={{
+              bgcolor: '#0284c7',
+              color: '#ffffff',
+              '&:hover': { bgcolor: '#0369a1' },
+              borderRadius: '8px',
+              textTransform: 'none',
+              boxShadow: 'none',
+              fontWeight: 600,
+              
+            }}
           >
             Refresh
           </Button>
@@ -447,12 +456,14 @@ export default function PriceAnalysisPage() {
             onClick={exportCsv}
             disabled={!sortedRows.length}
             sx={{
-              bgcolor: palette.teal,
-              '&:hover': { bgcolor: '#0b2327' },
+              bgcolor: '#16a34a',
+              color: '#ffffff',
+              '&:hover': { bgcolor: '#15803d' },
               borderRadius: '8px',
               textTransform: 'none',
               boxShadow: 'none',
-              height: 38,
+              fontWeight: 600,
+              
             }}
           >
             Export Excel

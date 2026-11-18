@@ -283,12 +283,20 @@ export default function PendingOrderAnalysisPage() {
         </Box>
         <Stack direction="row" spacing={1.5} alignItems="center">
           <Button
-            variant="outlined"
+            variant="contained"
             size="small"
             startIcon={<RefreshRounded sx={{ animation: isFetching ? 'spin 1s linear infinite' : 'none', '@keyframes spin': { '100%': { transform: 'rotate(360deg)' } } }} />}
             onClick={() => refetch()}
             disabled={isFetching}
-            sx={{ borderRadius: '8px', textTransform: 'none' }}
+            sx={{
+              bgcolor: '#0284c7',
+              color: '#ffffff',
+              '&:hover': { bgcolor: '#0369a1' },
+              borderRadius: '8px',
+              textTransform: 'none',
+              boxShadow: 'none',
+              fontWeight: 600,
+            }}
           >
             Refresh
           </Button>
@@ -299,14 +307,16 @@ export default function PendingOrderAnalysisPage() {
             onClick={exportCsv}
             disabled={!filteredRows.length}
             sx={{
-              bgcolor: palette.teal,
-              '&:hover': { bgcolor: '#0b2327' },
+              bgcolor: '#16a34a',
+              color: '#ffffff',
+              '&:hover': { bgcolor: '#15803d' },
               borderRadius: '8px',
               textTransform: 'none',
               boxShadow: 'none',
+              fontWeight: 600,
             }}
           >
-            Export CSV
+            Export Excel
           </Button>
         </Stack>
       </Stack>

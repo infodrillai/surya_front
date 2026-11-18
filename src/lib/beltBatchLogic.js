@@ -368,8 +368,8 @@ export async function loadBeltBatchRows(values) {
     // Process 2: Belt Sizing Materials & Components
     {
       process: 'Process 2: Belt Sizing',
-      product: 'Nylon Sheet',
-      component_type: 'Nylon Sheet',
+      product: values.sheet_material || 'Oriented Sheet',
+      component_type: values.sheet_material || 'Oriented Sheet',
       formula: 'sizing',
       uom: 'KG',
       per_unit_utilization: rollMeters > 0 ? (0.1538 * rollMeters) / qty : 0.015,

@@ -23,7 +23,9 @@ export { default as MyProfilePage } from './masters/MyProfilePage';
 // Reports
 export { default as MonthlyProductionReportPage } from './reports/production/MonthlyProductionReportPage';
 export { default as BeltProductionReportPage } from './reports/production/BeltProductionReportPage';
+export { default as CncProductionReportPage } from './reports/production/CncProductionReportPage';
 export { default as PendingDispatchAnalysisPage } from './reports/sales/PendingDispatchAnalysisPage';
+export { default as SalesPersonWiseSalesReportPage } from './reports/sales/SalesPersonWiseSalesReportPage';
 export { default as SalesReportsPage } from './reports/sales/SalesReportsPage';
 export { default as PendingOrderAnalysisPage } from './reports/purchase/PendingOrderAnalysisPage';
 export { default as CustomerOutstandingPage } from './reports/financial/CustomerOutstandingPage';

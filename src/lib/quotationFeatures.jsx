@@ -430,20 +430,29 @@ export async function fetchProductInfo(productName) {
     }
   } catch (_) { }
 
-  // 2. Fallback to API getDoc
-  if (!doc) {
+  // 2. Fallback to API getDoc if not found or if image/metadata is missing
+  if (!doc || !doc.image || !doc.company_code || !doc.competitor_company_code) {
     try {
-      doc = await getDoc('Product', productName);
+      const serverDoc = await getDoc('Product', doc?.name || productName);
+      if (serverDoc) {
+        doc = { ...(doc || {}), ...serverDoc };
+        if (serverDoc.image) image = serverDoc.image;
+        if (typeof db !== 'undefined' && db?.table && doc.name) {
+          try { await db.table('Product').put(doc); } catch (_) {}
+        }
+      }
     } catch (_) { }
   }
 
   if (doc) {
     uom = doc.uom || '';
-    image = doc.image || '';
+    image = doc.image || image || '';
     if (Number(doc.last_purchase_rate) > 0) lastPurchase = Number(doc.last_purchase_rate);
     if (Number(doc.valuation_rate) > 0) rawCost = Number(doc.valuation_rate);
     if (Number(doc.production_cost) > 0) cost = Number(doc.production_cost);
   }
+
+  if (!image) image = await fetchProductImage(productName);
 
   // 3. Try product_references backend endpoint if available (GET to avoid 417)
   try {
@@ -509,14 +518,14 @@ export async function fetchProductInfo(productName) {
         }
         if (!stg3Batches?.length) {
           stg3Batches = await getList('Stage 3 Batch', {
-            fields: ['name', 'product', 'unit_cost', 'batch_total', 'quantity', 'modified'],
+            fields: ['name', 'product', 'production_code', 'unit_cost', 'batch_total', 'quantity', 'modified'],
             orderBy: 'modified desc',
             limit: 100,
           });
         }
         const match = (stg3Batches || []).find(
           (b) =>
-            prodKeys.includes(b.product) &&
+            (prodKeys.includes(b.product) || prodKeys.includes(b.production_code)) &&
             (Number(b.unit_cost) > 0 || (Number(b.quantity) > 0 && Number(b.batch_total) > 0))
         );
         if (match) {
@@ -536,18 +545,59 @@ export async function fetchProductInfo(productName) {
         }
         if (!stg2Batches?.length) {
           stg2Batches = await getList('Stage 2 Batch', {
-            fields: ['name', 'product', 'unit_cost', 'batch_total', 'quantity', 'modified'],
+            fields: ['name', 'product', 'production_code', 'unit_cost', 'batch_total', 'quantity', 'modified'],
             orderBy: 'modified desc',
             limit: 100,
           });
         }
         const match = (stg2Batches || []).find(
           (b) =>
-            prodKeys.includes(b.product) &&
+            (prodKeys.includes(b.product) || prodKeys.includes(b.production_code)) &&
             (Number(b.unit_cost) > 0 || (Number(b.quantity) > 0 && Number(b.batch_total) > 0))
         );
         if (match) {
           cost = Number(match.unit_cost) || Number(match.batch_total) / Number(match.quantity);
+        }
+      } catch (_) { }
+    }
+
+    // Check Stage 1 Batch
+    if (!cost) {
+      try {
+        let stg1Batches = [];
+        if (typeof db !== 'undefined' && db?.table) {
+          try {
+            stg1Batches = await db.table('Stage 1 Batch').toArray();
+          } catch (_) { }
+        }
+        if (!stg1Batches?.length) {
+          stg1Batches = await getList('Stage 1 Batch', {
+            fields: ['name', 'product', 'production_code', 'unit_cost', 'batch_total', 'quantity', 'modified'],
+            orderBy: 'modified desc',
+            limit: 100,
+          });
+        }
+        const match = (stg1Batches || []).find(
+          (b) =>
+            (prodKeys.includes(b.product) || prodKeys.includes(b.production_code)) &&
+            (Number(b.unit_cost) > 0 || (Number(b.quantity) > 0 && Number(b.batch_total) > 0))
+        );
+        if (match) {
+          cost = Number(match.unit_cost) || Number(match.batch_total) / Number(match.quantity);
+        }
+      } catch (_) { }
+    }
+
+    // Check BOM standard calculation fallback
+    if (!cost) {
+      try {
+        const bom = await getDoc('BOM', productName).catch(() => null);
+        if (bom) {
+          let s1 = 0, s2 = 0, s3 = 0;
+          (bom.stage1_items || []).forEach((it) => { s1 += (Number(it.per_unit_utilization) || 0) * (Number(it.unit_price) || 0); });
+          (bom.stage2_items || []).forEach((it) => { s2 += (Number(it.per_unit_utilization) || 0) * (Number(it.unit_price) || 0); });
+          (bom.stage3_charges || []).forEach((c) => { s3 += Number(c.per_unit_price) || 0; });
+          cost = (s1 + s2) * 1.1 + s3;
         }
       } catch (_) { }
     }
@@ -643,8 +693,34 @@ export async function fetchProductInfo(productName) {
     product_code: doc?.product_code || productName || '',
     production_code: doc?.production_code || '',
     company_code: doc?.company_code || '',
+    competitor_company: doc?.competitor_company || '',
     competitor_company_code: doc?.competitor_company_code || '',
   };
+}
+
+async function fetchProductImage(productName) {
+  if (!productName) return '';
+  try {
+    if (typeof db !== 'undefined' && db?.table) {
+      let p = await db.table('Product').get(productName);
+      if (!p) {
+        const all = await db.table('Product').toArray();
+        p = all.find(
+          (x) =>
+            x.name === productName ||
+            x.product_code === productName ||
+            x.product_name === productName
+        );
+      }
+      if (p?.image) return p.image;
+    }
+  } catch (_) {}
+  try {
+    const product = await getDoc('Product', productName);
+    return product?.image || '';
+  } catch (_) {
+    return '';
+  }
 }
 
 /**
@@ -725,12 +801,14 @@ export function recomputeLine(row) {
   if (row.pricing_mode === 'Percentage' || row.pricing_mode === undefined) {
     const pr = Number(row.pr) || 0;
     // Only auto-calculate rate from cost when we have a real unit cost.
-    // When cost is 0, keep whatever the user has already typed in the rate field.
+    // When cost is 0, keep whatever the user has already typed in the rate field, or default to last_selling_price.
     if (unitCost > 0) {
       rate = unitCost * (1 + pr / 100) * (1 + (gstPct || 0) / 100);
       row.rate = rate;
+    } else if (!rate && Number(row.last_selling_price) > 0) {
+      rate = Number(row.last_selling_price);
+      row.rate = rate;
     }
-    // else: leave row.rate as-is so manual entry survives a recompute
   } else if (unitCost > 0) {
     const baseRate = rate / (1 + (gstPct || 0) / 100);
     row.pr = ((baseRate / unitCost) - 1) * 100;
@@ -760,28 +838,27 @@ export async function setProduct(row, { values } = {}) {
   row.reference_exchange_rate = 1;
   row.pricing_mode = 'Percentage';
 
-  // Set product metadata columns (product_code, production_code, company_code, competitor_company_code)
+  // Set product metadata columns (product_code, production_code, company_code, competitor_company, competitor_company_code)
   if (info.product_code) row.product_code = info.product_code;
   if (info.production_code !== undefined) row.production_code = info.production_code || '';
   if (info.company_code !== undefined) row.company_code = info.company_code || '';
+  if (info.competitor_company !== undefined) row.competitor_company = info.competitor_company || '';
   if (info.competitor_company_code !== undefined) row.competitor_company_code = info.competitor_company_code || '';
 
-  // Fetch customer-wise last selling price if customer is available
+  // Fetch customer-wise last selling price (or product fallback)
   const customer = row._customer || values?.customer;
-  if (customer && product) {
+  if (product) {
     try {
-      const priceResult = await call('clssurya.api.get_last_selling_price', { customer, product }, { get: true });
-      if (priceResult && priceResult.has_history) {
-        row.last_selling_price = priceResult.last_selling_price || 0;
+      const priceResult = await call('clssurya.api.get_last_selling_price', { customer: customer || undefined, product }, { get: true });
+      if (priceResult && priceResult.has_history && Number(priceResult.last_selling_price) > 0) {
+        row.last_selling_price = Number(priceResult.last_selling_price);
         row._last_selling_price_ref = priceResult.source_ref || '';
         row._last_selling_price_date = priceResult.transaction_date || '';
-      } else {
-        row.last_selling_price = 0;
-        row._last_selling_price_ref = '';
-        row._last_selling_price_date = '';
+      } else if (info.last_selling_price > 0) {
+        row.last_selling_price = info.last_selling_price;
       }
     } catch (_) {
-      // Keep product-info fallback value
+      if (info.last_selling_price > 0) row.last_selling_price = info.last_selling_price;
     }
   }
 
@@ -790,6 +867,13 @@ export async function setProduct(row, { values } = {}) {
 
 export function enhanceQuotation(config) {
   config.getEffectiveStatus = getEffectiveQuotationStatus;
+  const prevDefaults = config.newDefaults;
+  config.newDefaults = () => ({
+    ...(prevDefaults ? prevDefaults() : {}),
+    currency: 'INR',
+    exchange_rate: 1,
+    validity_days: 15,
+  });
   config.isLocked = (d) =>
     ['Superseded', 'Accepted', 'Rejected', 'Disapproved'].includes(getEffectiveQuotationStatus(d));
   config.header = (values, doc) => <QuotationPanel values={values} doc={doc} />;
@@ -797,17 +881,21 @@ export function enhanceQuotation(config) {
     2,
     0,
     number('validity_days', 'Validity (days)', { positive: true, default: () => 15 }),
-    {
-      name: 'currency',
-      label: 'Currency',
-      type: 'select',
-      options: ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'JPY', 'CAD', 'AUD'],
-      default: () => 'INR',
+    link('currency', 'Currency', 'Currency', {
+      master: 'Currency',
       required: true,
-      onChange: (values) => {
-        values.exchange_rate = values.currency === 'INR' ? 1 : '';
+      default: () => 'INR',
+      onChange: (rowOrVals, ctx) => {
+        const val = typeof rowOrVals === 'string' ? rowOrVals : (rowOrVals?.currency || ctx?.values?.currency);
+        const ex = (val === 'INR' || val === 'Indian Rupee') ? 1 : '';
+        if (rowOrVals && typeof rowOrVals === 'object') {
+          rowOrVals.exchange_rate = ex;
+        }
+        if (ctx?.setValue) {
+          ctx.setValue('exchange_rate', ex, { shouldDirty: true });
+        }
       },
-    },
+    }),
     number('exchange_rate', 'Exchange rate (INR per currency unit)', { positive: true, required: true }),
     { name: 'remarks', label: 'Remarks', type: 'textarea' }
   );
@@ -830,7 +918,7 @@ export function enhanceQuotation(config) {
       type: 'link',
       master: 'Product',
       required: true,
-      minWidth: 150,
+      minWidth: 180,
       labelField: 'product_name',
       onChange: async (row, ctx) => {
         await setProduct(row, ctx);
@@ -849,6 +937,10 @@ export function enhanceQuotation(config) {
       minWidth: 65,
     },
     {
+      ...read('competitor_company', 'Comp. Co.'),
+      minWidth: 70,
+    },
+    {
       ...read('competitor_company_code', 'Comp. Code'),
       minWidth: 70,
     },
@@ -858,18 +950,18 @@ export function enhanceQuotation(config) {
       type: 'link',
       master: 'UOM',
       required: true,
-      minWidth: 50,
+      minWidth: 10,
     },
     {
       ...read('production_cost', 'Cost unit'),
       type: 'currency',
       dp: 4,
-      minWidth: 70,
+      minWidth: 50,
     },
     number('quantity', 'Qty', {
       positive: true,
       required: true,
-      minWidth: 55,
+      minWidth: 40,
       onChange: (row) => {
         recomputeLine(row);
       },
@@ -878,7 +970,7 @@ export function enhanceQuotation(config) {
       allowNegative: true,
       dp: 2,
       default: () => 0,
-      minWidth: 50,
+      minWidth: 40,
       onChange: (row) => {
         row.pricing_mode = 'Percentage';
         recomputeLine(row);
@@ -893,11 +985,20 @@ export function enhanceQuotation(config) {
       readOnly: false,
       onChange: (row, { values } = {}) => {
         row.pricing_mode = 'Rate';
-        row.rate_exchange_rate = values?.currency === 'INR' ? 1 : Number(values?.exchange_rate) || 1;
+        row.rate_exchange_rate = (values?.currency === 'INR' || values?.currency === 'Indian Rupee') ? 1 : Number(values?.exchange_rate) || 1;
         recomputeLine(row);
       },
     },
-    number('gst_percent', 'GST(%)', {
+    // number('gst_percent', 'GST(%)', {
+    //   min: 0,
+    //   max: 100,
+    //   default: () => 0,
+    //   minWidth: 40,
+    //   onChange: (row) => {
+    //     recomputeLine(row);
+    //   },
+    // }),
+    number('item_discount_percent', 'Discount(%)', {
       min: 0,
       max: 100,
       default: () => 0,
@@ -906,26 +1007,17 @@ export function enhanceQuotation(config) {
         recomputeLine(row);
       },
     }),
-    number('item_discount_percent', 'Discount(%)', {
-      min: 0,
-      max: 100,
-      default: () => 0,
-      minWidth: 55,
-      onChange: (row) => {
-        recomputeLine(row);
-      },
-    }),
     {
       ...read('last_selling_price', 'Last Sold'),
       type: 'currency',
       dp: 2,
-      minWidth: 75,
+      minWidth: 60,
     },
     {
       ...read('amount', 'Amount'),
       type: 'currency',
       dp: 2,
-      minWidth: 75,
+      minWidth: 50,
     },
   ];
 
@@ -941,21 +1033,23 @@ export function enhanceQuotation(config) {
   /**
    * Called by DocForm when opening a saved quotation.
    * Re-fetches product info for any row where production_cost is missing or 0,
-   * so cost unit always shows correctly after "Save as Draft" → reopen.
+   * so cost unit always shows correctly after "Save & Close" → reopen.
    */
   config.fixItems = async (items) => {
     const fixed = await Promise.all(
       items.map(async (row) => {
         if (!row.product) return row;
-        // If we already have a valid cost, skip the fetch
-        if (Number(row.production_cost) > 0 || Number(row.base_cost_inr) > 0) return row;
+        const image = row.image || await fetchProductImage(row.product);
+        const hasCost = Number(row.production_cost) > 0 || Number(row.base_cost_inr) > 0;
+        if (hasCost && image === row.image) return row;
+        if (hasCost) return { ...row, image };
         try {
           const info = await fetchProductInfo(row.product);
           if (info.production_cost > 0) {
             const updated = {
               ...row,
               uom: row.uom || info.uom || '',
-              image: row.image || info.image || '',
+              image: image || info.image || '',
               production_cost: info.production_cost,
               base_cost_inr: info.production_cost,
               last_selling_price: row.last_selling_price || info.last_selling_price || 0,
@@ -968,6 +1062,7 @@ export function enhanceQuotation(config) {
             }
             return updated;
           }
+          if (image && !row.image) return { ...row, image };
         } catch (_) { }
         return row;
       })
@@ -982,7 +1077,7 @@ export function enhanceQuotation(config) {
     const validDate = new Date(qDate);
     validDate.setDate(validDate.getDate() + validityDays);
     const valid_until = !isNaN(validDate.getTime()) ? validDate.toISOString().split('T')[0] : '';
-    const fx = v.currency === 'INR' ? 1 : Number(v.exchange_rate) || 1;
+    const fx = (v.currency === 'INR' || v.currency === 'Indian Rupee') ? 1 : Number(v.exchange_rate) || 1;
 
     const items = (v.items || []).map((r) => {
       const referenceFx = Number(r.reference_exchange_rate || fx);
@@ -1053,7 +1148,7 @@ export function enhanceQuotation(config) {
 
     return {
       top: {
-        ...(v.currency === 'INR' ? { exchange_rate: 1 } : {}),
+        ...((v.currency === 'INR' || v.currency === 'Indian Rupee') ? { exchange_rate: 1 } : {}),
         valid_until,
         amount_exchange_rate: fx,
         packing_charges,
@@ -1152,11 +1247,6 @@ export function enhanceQuotation(config) {
     3,
     0,
     {
-      field: 'currency',
-      label: 'Currency',
-      getValue: (row) => row.currency || 'INR',
-    },
-    {
       field: 'valid_until',
       label: 'Valid until',
       type: 'date',
@@ -1176,7 +1266,12 @@ export function enhanceQuotation(config) {
       field: 'created_by_name',
       label: 'Created by',
       getValue: (row) => row.created_by_name || row.owner || '',
-    }
+    },
+    {
+      field: 'currency',
+      label: 'Currency',
+      getValue: (row) => row.currency || 'INR',
+    }       
   );
 
   const subtotalCol = config.columns.find((c) => c.field === 'subtotal');
@@ -1193,6 +1288,8 @@ export function enhanceQuotation(config) {
 
   const grandTotalCol = config.columns.find((c) => c.field === 'grand_total');
   if (grandTotalCol) {
+    grandTotalCol.type = 'number';
+    grandTotalCol.dp = 2;
     grandTotalCol.getValue = (row) => {
       const val = row.grand_total ?? row.rounded_total ?? row.base_grand_total ?? row.base_rounded_total ?? row.total ?? row.subtotal;
       if (val != null && val !== '') return Number(val);
@@ -1209,46 +1306,4 @@ export function enhanceQuotation(config) {
   }
 }
 
-export const quotationMasters = {
-  '/quotation-currency': {
-    doctype: 'Quotation Currency',
-    title: 'Currency',
-    fields: [
-      { name: 'currency_code', label: 'Code (e.g. EUR)', type: 'text', required: true, readOnlyOnEdit: true },
-      { name: 'symbol', label: 'Symbol', type: 'text' },
-      { name: 'enabled', label: 'Enabled', type: 'check', default: () => 1 },
-    ],
-    columns: [
-      { field: 'currency_code', label: 'Code' },
-      { field: 'symbol', label: 'Symbol' },
-    ],
-  },
-  '/competitor-company': {
-    doctype: 'Competitor Company',
-    title: 'Competitor company',
-    fields: [
-      { name: 'company_code', label: 'Company code', required: true, readOnlyOnEdit: true },
-      { name: 'company_name', label: 'Name', required: true },
-    ],
-    columns: [
-      { field: 'company_code', label: 'Code' },
-      { field: 'company_name', label: 'Name' },
-    ],
-  },
-  '/product-code-mapping': {
-    doctype: 'Product Code Mapping',
-    title: 'Product code mapping',
-    fields: [
-      { name: 'customer', label: 'Customer', type: 'link', master: 'Customer' },
-      link('competitor', 'Competitor', 'Competitor Company'),
-      { name: 'external_code', label: 'External code', required: true },
-      { name: 'product', label: 'Surya product', type: 'link', master: 'Product', required: true },
-    ],
-    columns: [
-      { field: 'external_code', label: 'External code' },
-      { field: 'customer', label: 'Customer' },
-      { field: 'competitor', label: 'Competitor' },
-      { field: 'product', label: 'Surya product' },
-    ],
-  },
-};
+export const quotationMasters = {};

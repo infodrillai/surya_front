@@ -344,7 +344,7 @@ export default function PendingDispatchAnalysisPage() {
         </Box>
         <Stack direction="row" spacing={1.5} alignItems="center">
           <Button
-            variant="outlined"
+            variant="contained"
             size="small"
             startIcon={
               <RefreshRounded
@@ -356,7 +356,15 @@ export default function PendingDispatchAnalysisPage() {
             }
             onClick={() => refetch()}
             disabled={isFetching}
-            sx={{ borderRadius: '8px', textTransform: 'none' }}
+            sx={{
+              bgcolor: '#0284c7',
+              color: '#ffffff',
+              '&:hover': { bgcolor: '#0369a1' },
+              borderRadius: '8px',
+              textTransform: 'none',
+              boxShadow: 'none',
+              fontWeight: 600,
+            }}
           >
             Refresh
           </Button>
@@ -367,14 +375,16 @@ export default function PendingDispatchAnalysisPage() {
             onClick={exportCsv}
             disabled={!filteredRows.length}
             sx={{
-              bgcolor: palette.teal,
-              '&:hover': { bgcolor: '#0b2327' },
+              bgcolor: '#16a34a',
+              color: '#ffffff',
+              '&:hover': { bgcolor: '#15803d' },
               borderRadius: '8px',
               textTransform: 'none',
               boxShadow: 'none',
+              fontWeight: 600,
             }}
           >
-            Export Excel (CSV)
+            Export Excel
           </Button>
         </Stack>
       </Stack>
@@ -469,7 +479,7 @@ export default function PendingDispatchAnalysisPage() {
             </Select>
           </FormControl>
 
-         
+
 
           {/* 5. Product Name */}
           <Box>
@@ -693,13 +703,12 @@ export default function PendingDispatchAnalysisPage() {
                 <TableCell>Customer</TableCell>
                 <TableCell align="center">Product </TableCell>
                 <TableCell align="right">Order Qty</TableCell>
-                <TableCell align="right">Dispatch Qty</TableCell>
-                <TableCell align="right">Pending Qty</TableCell>
-              
+                <TableCell align="right">Dis.Qty</TableCell>
+                <TableCell align="right">Pen.Qty</TableCell>
+
                 <TableCell align="right">Rate</TableCell>
                 <TableCell align="right">Order Amt</TableCell>
                 <TableCell align="right">Dis. Amt</TableCell>
-                <TableCell align="right">Dis. Total Amt</TableCell>
                 <TableCell align="right">Pen. Amt</TableCell>
                 <TableCell align="center">Status</TableCell>
                 <TableCell>Exp. Del Dt</TableCell>
@@ -787,7 +796,7 @@ export default function PendingDispatchAnalysisPage() {
                       <TableCell sx={{ fontSize: '0.82rem', px: 1, minWidth: 160 }}>
                         {row.product_name}
                       </TableCell>
-                      
+
                       <TableCell align="right" sx={{ fontWeight: 600, fontSize: '0.82rem', px: 1 }}>
                         {fmtNum(row.ordered_qty, 2)}
                       </TableCell>
@@ -805,7 +814,7 @@ export default function PendingDispatchAnalysisPage() {
                       >
                         {fmtNum(row.pending_qty, 2)}
                       </TableCell>
-                      
+
                       <TableCell align="right" sx={{ fontSize: '0.82rem', px: 1 }}>
                         ₹{fmtNum(row.rate, 2)}
                       </TableCell>
@@ -815,9 +824,7 @@ export default function PendingDispatchAnalysisPage() {
                       <TableCell align="right" sx={{ fontSize: '0.82rem', px: 1, color: '#059669' }}>
                         ₹{fmtNum(row.dispatched_amount, 2)}
                       </TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 600, fontSize: '0.82rem', px: 1, color: '#2563eb' }}>
-                        ₹{fmtNum((Number(row.rate) || 0) * (Number(row.dispatched_qty) || 0), 2)}
-                      </TableCell>
+
                       <TableCell
                         align="right"
                         sx={{
@@ -859,7 +866,7 @@ export default function PendingDispatchAnalysisPage() {
                   <TableCell align="right" sx={{ color: '#ea580c' }}>
                     {fmtNum(summary.total_pending_dispatch_qty, 2)}
                   </TableCell>
-                  <TableCell />
+
                   <TableCell />
                   <TableCell align="right">
                     ₹{fmtNum(filteredRows.reduce((a, b) => a + (Number(b.total_order_amount) || 0), 0), 2)}

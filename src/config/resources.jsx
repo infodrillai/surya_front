@@ -42,28 +42,63 @@ const col = (field, label, type) => ({ field, label, type });
 // ---- simple masters --------------------------------------------------------
 const simple = (doctype, nameField, title, x = {}) => ({
   doctype, master: true, title, plural: x.plural,
-  fields: [t(nameField, `${title} name`, { required: true, readOnlyOnEdit: true })],
-  columns: [col(nameField, `${title} name`)],
+  fields: [t(nameField, `${title} Name`, { required: true, readOnlyOnEdit: true })],
+  columns: [col(nameField, `${title} Name`)],
 });
 const contact = [t('gstin', 'GSTIN'), t('state', 'State'), t('phone', 'Phone'), { name: 'address', label: 'Address', type: 'textarea' }];
-const contactCols = [col('name', 'Name'), col('gstin', 'GSTIN'), col('state', 'State'), col('phone', 'Phone')];
-const customerCols = [col('name', 'Name'), col('gstin', 'GSTIN'), col('city', 'City'), col('mobile', 'Mobile'), col('total_outstanding', 'Outstanding', 'currency')];
+const contactCols = [col('name', 'Vendor Name'), col('gstin', 'GST NO'), col('state', 'State'), col('phone', 'Phone')];
+const customerCols = [col('name', 'Customer Name'), col('gstin', 'GST NO'), col('city', 'City'), col('mobile', 'Mobile'), col('total_outstanding', 'Outstanding', 'currency')];
 
-const uom = { ...simple('UOM', 'uom_name', 'UOM'), plural: 'Units of measure' };
-const process = { ...simple('Process', 'process_name', 'Process'), plural: 'Processes' };
+export const currency = {
+  doctype: 'Currency',
+  master: true,
+  title: 'Currency',
+  plural: 'Currencies',
+  fields: [
+    t('currency_name', 'Currency Code / Name (e.g. USD, EUR, INR)', {
+      required: true,
+      readOnlyOnEdit: true,
+      onChange: (vals) => {
+        if (vals && typeof vals === 'object') {
+          vals.name = vals.currency_name;
+        }
+      },
+    }),
+    t('symbol', 'Symbol', { required: false }),
+    { name: 'enabled', label: 'Enabled', type: 'check', default: () => 1 },
+  ],
+  columns: [
+    col('name', 'Currency Code'),
+    col('currency_name', 'Currency Name'),
+    col('symbol', 'Symbol'),
+  ],
+  beforeSave: (doc) => {
+    if (!doc.currency_name && doc.name) doc.currency_name = doc.name;
+    if (!doc.name && doc.currency_name) doc.name = doc.currency_name;
+    return doc;
+  },
+};
+
+const uom = { ...simple('UOM', 'uom_name', 'UOM'), plural: 'Units of Measure' };
+
+const process = { ...simple('Process', 'process_name', 'Process'), plural: 'Process' };
+
 const category = {
   doctype: 'Category', master: true, title: 'Category', plural: 'Categories',
   fields: [
-    t('category_name', 'Category name', { required: true, readOnlyOnEdit: true }),
+    t('category_name', 'Category Name', { required: true, readOnlyOnEdit: true }),
     num('max_purchase_qty', 'Max Purchase Qty Limit (Approval threshold)'),
   ],
   columns: [
-    col('category_name', 'Category name'),
+    col('category_name', 'Category Name'),
     col('max_purchase_qty', 'Max Purchase Limit', 'number'),
   ],
 };
+
 const charge = { ...simple('Charge', 'charge_name', 'Charge'), subtitle: 'Labour, electricity and other Stage 3 charges.' };
+
 const vendor = { doctype: 'Vendor', master: true, title: 'Vendor', fields: [t('vendor_name', 'Vendor name', { required: true, readOnlyOnEdit: true }), ...contact], columns: contactCols, subtitle: 'State decides CGST + SGST or IGST on purchases.' };
+
 const customer = {
   doctype: 'Customer',
   master: true,
@@ -123,12 +158,12 @@ const product = {
   fields: [
     t('product_name', 'Product name', { required: true }),
     { name: 'description', label: 'Description', type: 'textarea' },
-    t('image', 'Image URL (/files/...)'),
+    { name: 'image', label: 'Product image', type: 'image' },
     t('product_code', 'Product code', { required: true, readOnlyOnEdit: true }),
-    // NEW – Production Code (separate from product_code, used on finished-goods transfer)
     t('production_code', 'Production Code', { required: false }),
-    t('company_code', 'Company Code', { required: false }),
-    t('competitor_company_code', 'Competitor Company Code', { required: false }),
+    t('company_code', 'Company Code', { required: false, placeholder: 'Our company code' }),
+    t('competitor_company', 'Competitor Company', { required: false, placeholder: 'e.g. Gates / Contitech / Fenner / Optibelt' }),
+    t('competitor_company_code', 'Competitor Product Code (Mapping)', { required: false, placeholder: 'Competitor / External product code' }),
     sel('product_type', 'Product type', ['Raw', 'Semi', 'Finished'], { required: true, default: () => 'Raw' }),
     sel('finished_good_type', 'Finished Good Type', ['PU', 'Belt'], {
       showIf: (v) => v.product_type === 'Finished' || v.product_type === 'Semi',
@@ -152,6 +187,10 @@ const product = {
     ], {
       showIf: (v) => (v.product_type === 'Finished' || v.product_type === 'Semi') && v.finished_good_type === 'Belt',
       default: () => 'Grommed',
+    }),
+    sel('belt_color', 'Belt Color', ['Brown', 'Black'], {
+      showIf: (v) => (v.product_type === 'Finished' || v.product_type === 'Semi') && v.finished_good_type === 'Belt',
+      default: () => 'Brown',
     }),
     num('belt_length', 'Length', {
       default: () => 0,
@@ -401,9 +440,14 @@ const product = {
     },
   },
   columns: [
-    col('product_code', 'Code'),
+    col('image', 'Image', 'image'),
+    col('product_code', 'Product Code'),
     col('production_code', 'Production Code'),
-    col('product_name', 'Name'),
+    col('company_code', 'Comp. Code'),
+    col('competitor_company', 'Competitor Comp.'),
+    col('competitor_company_code', 'Competitor Prod. Code Mapping'),
+    col('product_name', 'Product Name'),
+    { field: 'belt_color', label: 'Belt Color', getValue: (r) => r.finished_good_type === 'Belt' ? (r.belt_color || 'Brown') : '—' },
     col('product_type', 'Type'),
     col('uom', 'UOM'),
     col('category', 'Category'),
@@ -625,8 +669,9 @@ const stageConfig = (stage) => ({
     num('quantity', 'Quantity produced', { positive: true }),
     ...(stage === 2 ? [num('size', 'Size', { positive: true })] : []),
     date('posting_date', 'Date'),
-    //t('operator', 'Operator / Worker'),
-    //link('operation', 'Process / Operation', 'Process'),
+    t('operator', 'Operator / Worker'),
+    link('machine', 'Machine', 'CNC Machine', { filter: (r) => r.status === 'Active' }),
+    sel('shift', 'Shift', ['Morning', 'Evening', 'Night'], { default: () => 'Morning' }),
     
     ...(stage === 1 ? [num('weight_per_piece', 'Weight per piece', { positive: true }), ro(num('wastage_qty', 'Wastage (to scrap)', { dp: 4 }))] : []),
     ...(stage === 3 ? [num('tooling_percent', 'Tooling cost %', { max: 100 }),] : []),
@@ -647,7 +692,7 @@ const stageConfig = (stage) => ({
 
   loadKey: (v) => (v.product && Number(v.quantity) > 0 ? (stage === 2 ? `${v.product}|${v.quantity}|${v.size || ''}` : `${v.product}|${v.quantity}`) : null),
   loadRows: stageRows(stage),
-  columns: [col('name', 'Batch No'), col('product', 'Product'), col('quantity', 'Quantity', 'number'), col('unit_cost', 'Unit cost', 'currency'), col('batch_total', 'Batch total', 'currency'), status],
+  columns: [col('name', 'Batch No'), col('product', 'Product'), col('quantity', 'Quantity', 'number'), col('machine', 'Machine'), col('operator', 'Operator'), col('shift', 'Shift'), col('unit_cost', 'Unit cost', 'currency'), col('batch_total', 'Batch total', 'currency'), status],
   // Validate numeric fields to avoid NaN when saving/completing
   validate: (v) => {
     const e = {};
@@ -733,34 +778,19 @@ const quotationLineCalc = (row) => {
   const pr = Number(row.pr) || 0;
   const qty = Number(row.quantity) || 0;
   const gst = row.gst_percent !== undefined && row.gst_percent !== '' ? Number(row.gst_percent) : 0;
-  const rate = cost * (1 + pr / 100) * (1 + gst / 100);
-  const amount = qty * rate;
-  return { rate, amount };
+  const discPct = Number(row.item_discount_percent) || 0;
+  const existingRate = Number(row.rate) || 0;
+  let rate = cost > 0 ? cost * (1 + pr / 100) * (1 + gst / 100) : existingRate;
+  if (!rate && Number(row.last_selling_price) > 0) {
+    rate = Number(row.last_selling_price);
+  }
+  const gross = qty * rate;
+  const discAmt = (gross * discPct) / 100;
+  const amount = gross - discAmt;
+  return { rate, amount, gross_amount: gross, item_discount_amount: discAmt };
 };
 
 const quotationRow = [
-  {
-    ...link('product', 'Product', 'Product', {
-      required: true,
-      minWidth: 220,
-      labelField: 'product_name',
-      onChange: async (row) => {
-        const info = await fetchProductInfo(row.product);
-        row.uom = info.uom;
-        row.production_cost = info.production_cost;
-        row.image = info.image || '';
-        row.product_code = info.product_code || '';
-        row.production_code = info.production_code || '';
-        row.company_code = info.company_code || '';
-        row.competitor_company_code = info.competitor_company_code || '';
-        row.last_selling_price = info.last_selling_price || 0;
-        // Recalculate rate & amount with the new cost
-        const { rate, amount } = quotationLineCalc({ ...row, production_cost: info.production_cost });
-        row.rate = rate;
-        row.amount = amount;
-      },
-    }),
-  },
   {
     name: 'image',
     label: 'Img',
@@ -768,16 +798,30 @@ const quotationRow = [
     readOnly: true,
     minWidth: 36,
   },
-  { ...ro(t('product_code', 'Product Code')), minWidth: 75 },
-  { ...ro(t('production_code', 'Prod. Code')), minWidth: 70 },
-  ro(t('uom', 'UOM')),
-  ro(cur('production_cost', 'Cost / unit', { dp: 4 })),
-  num('quantity', 'Qty', { positive: true, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }),
-  num('pr', 'PR (%)', { dp: 2, default: () => 0, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }),
-  num('gst_percent', 'GST (%)', { min: 0, max: 100, default: () => 0, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }),
-  ro(cur('rate', 'Rate', { dp: 4 })),     // Cost/unit × (1 + PR%) × (1 + GST%) — auto-calculated
-  { ...ro(cur('last_selling_price', 'Last Sold', { dp: 2 })), minWidth: 75 },
-  ro(cur('amount', 'Amount')),
+  {
+    ...link('product', 'Product', 'Product', {
+      required: true,
+      minWidth: 160,
+      labelField: 'product_name',
+      onChange: async (row, ctx) => {
+        await setProduct(row, ctx);
+      },
+    }),
+  },
+  { ...ro(t('product_code', 'Code')), minWidth: 60 },
+  { ...ro(t('production_code', 'Prod')), minWidth: 55 },
+  { ...ro(t('company_code', 'Co. Code')), minWidth: 65 },
+  { ...ro(t('competitor_company', 'Comp. Co.')), minWidth: 70 },
+  { ...ro(t('competitor_company_code', 'Comp. Code')), minWidth: 70 },
+  { ...ro(t('uom', 'UOM')), minWidth: 50 },
+  { ...ro(cur('production_cost', 'Cost/u', { dp: 2 })), minWidth: 65 },
+  { ...num('quantity', 'Qty', { positive: true, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }), minWidth: 60 },
+  { ...num('pr', 'PR %', { dp: 2, default: () => 0, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }), minWidth: 55 },
+  //{ ...num('gst_percent', 'GST %', { min: 0, max: 100, default: () => 0, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }), minWidth: 55 },
+  { ...num('item_discount_percent', 'Discount %', { min: 0, max: 100, default: () => 0, onChange: (row) => { const { rate, amount } = quotationLineCalc(row); row.rate = rate; row.amount = amount; } }), minWidth: 55 },
+  { ...ro(cur('rate', 'Rate', { dp: 2 })), minWidth: 70 },
+  { ...ro(cur('last_selling_price', 'Last Sold', { dp: 2 })), minWidth: 65 },
+  { ...ro(cur('amount', 'Amount')), minWidth: 75 },
 ];
 
 
@@ -795,20 +839,27 @@ const quotation = {
   fields: [
     link('customer', 'Customer', 'Customer', {
       required: true,
-      onChange: async (values) => {
+      onChange: async (values, ctx) => {
         // When customer changes, refresh last_selling_price for all existing items
-        const customer = values.customer;
-        const items = values.items;
+        const customer = (typeof values === 'string' ? values : (values?.customer || ctx?.values?.customer));
+        const allVals = ctx?.getValues ? ctx.getValues() : (ctx?.values || values || {});
+        const items = allVals?.items || [];
         if (!customer || !Array.isArray(items) || !items.length) return;
         const { call: apiCall } = await import('../api/client');
-        for (const row of items) {
-          if (!row.product) continue;
+        for (let i = 0; i < items.length; i++) {
+          const row = items[i];
+          if (!row?.product) continue;
           try {
             const priceResult = await apiCall('clssurya.api.get_last_selling_price', { customer, product: row.product }, { get: true });
-            if (priceResult?.has_history) {
-              row.last_selling_price = priceResult.last_selling_price || 0;
-            } else {
-              row.last_selling_price = 0;
+            const lsp = priceResult?.has_history ? (priceResult.last_selling_price || 0) : 0;
+            if (lsp > 0) {
+              row.last_selling_price = lsp;
+              if (ctx?.setValue) {
+                ctx.setValue(`items.${i}.last_selling_price`, lsp, { shouldDirty: true });
+                if (!row.rate && !row.production_cost) {
+                  ctx.setValue(`items.${i}.rate`, lsp, { shouldDirty: true });
+                }
+              }
             }
           } catch (_) {}
         }
@@ -827,7 +878,7 @@ const quotation = {
     // Packing & Transport — editable in summary panel
     { ...num('gst_percent', 'GST (%)', { max: 100, default: () => 0 }), summary: true, editable: true },
     sum(cur('tax_amount', 'GST Amount')),
-    sum(cur('grand_total', 'Grand Total')),
+    sum(cur('grand_total', 'Grand Total', { dp: 0 })),
   ],
   summaryTitle: 'Quotation Summary',
   summaryColumns: 8,
@@ -840,22 +891,23 @@ const quotation = {
     const prevVersion = doc?.previous_version || v?.previous_version;
     const parentQuotation = doc?.parent_quotation || v?.parent_quotation;
     return (
-      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center', mb: 0.5 }}>
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 0 }}>
         {version && (
           <Chip
             size="small"
             label={`Version ${version}`}
             color="info"
             variant="outlined"
+            sx={{ height: 22, fontSize: 11 }}
           />
         )}
         {prevVersion && (
           <Button
             size="small"
             variant="outlined"
-            startIcon={<OpenInNewIcon fontSize="small" />}
+            startIcon={<OpenInNewIcon sx={{ fontSize: 13 }} />}
             onClick={() => openQuotation(prevVersion)}
-            sx={{ fontSize: 11, py: 0.25 }}
+            sx={{ fontSize: 11, py: 0.1, px: 0.8, height: 22 }}
           >
             Previous: {prevVersion}
           </Button>
@@ -866,24 +918,25 @@ const quotation = {
             label={`Parent: ${parentQuotation}`}
             variant="outlined"
             color="default"
+            sx={{ height: 22, fontSize: 11 }}
           />
         )}
         <Button
           size="small"
           variant="contained"
-          startIcon={<DownloadRoundedIcon fontSize="small" />}
+          startIcon={<DownloadRoundedIcon sx={{ fontSize: 14 }} />}
           onClick={() => generateQuotationPDF(doc || v)}
           sx={{
-            fontSize: 11.5,
+            fontSize: 11,
             fontWeight: 600,
-            py: 0.4,
-            px: 1.5,
+            py: 0.2,
+            px: 1.2,
+            height: 24,
             bgcolor: '#0d2b56',
             '&:hover': { bgcolor: '#1e3a8a' },
             color: '#ffffff',
             borderRadius: '6px',
             textTransform: 'none',
-            boxShadow: '0 2px 6px rgba(13, 43, 86, 0.25)',
           }}
         >
           Download PDF
@@ -895,6 +948,7 @@ const quotation = {
   tables: [{
     name: 'items',
     label: 'Items',
+    compact: true,
     fields: quotationRow,
     newRow: () => ({ quantity: '', pr: 0, gst_percent: 0, name: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` }),
     empty: 'Add finished products to quote.',
@@ -902,21 +956,39 @@ const quotation = {
 
 
   compute: (v, ctx) => {
-    // Fill production_cost from finishedCost (live Stage 3 unit price) when available
+    // Fill production_cost from finishedCost (live batch/BOM unit price) when available
     const base = salesCalc(v, ctx);
     const baseItems = base.rows?.items || v.items || [];
 
-    // For each row: rate = production_cost × (1 + pr/100) × (1 + gst/100), amount = qty × rate
+    // For each row: calculate rate from production_cost × (1 + pr/100) × (1 + gst/100)
+    // and amount = gross - item_discount_amount
     const items = baseItems.map((item) => {
-      const cost = Number(item.production_cost) || 0;
+      const cost = Number(item.production_cost) || Number(ctx?.finishedCost?.[item.product]?.unit_price) || 0;
       const pr = Number(item.pr) || 0;
       const qty = Number(item.quantity) || 0;
       const gst = item.gst_percent !== undefined && item.gst_percent !== '' ? Number(item.gst_percent) : 0;
-      const rate = cost * (1 + pr / 100) * (1 + gst / 100);
-      const amount = qty * rate;
+      const discPct = Number(item.item_discount_percent) || 0;
+      const existingRate = Number(item.rate) || 0;
+      let rate = cost > 0 ? cost * (1 + pr / 100) * (1 + gst / 100) : existingRate;
+      if (!rate && Number(item.last_selling_price) > 0) {
+        rate = Number(item.last_selling_price);
+      }
+      const gross = qty * rate;
+      const discAmt = (gross * discPct) / 100;
+      const amount = gross - discAmt;
       const taxable = amount / (1 + (gst || 0) / 100);
       const gstAmt = amount - taxable;
-      return { ...item, rate, amount, gst_percent: gst, gst_amount: gstAmt, taxable_amount: taxable };
+      return {
+        ...item,
+        production_cost: cost,
+        rate,
+        amount,
+        gross_amount: gross,
+        item_discount_amount: discAmt,
+        gst_percent: gst,
+        gst_amount: gstAmt,
+        taxable_amount: taxable
+      };
     });
 
     const subtotal = items.reduce((t, it) => t + it.amount, 0);
@@ -988,8 +1060,7 @@ const quotation = {
     col('name', 'Quotation No'),
     col('customer', 'Customer'),
     col('quotation_date', 'Date', 'date'),
-    col('subtotal', 'Subtotal', 'currency'),
-   
+    col('currency', 'Currency'),
     col('grand_total', 'Grand Total', 'currency'),
     col('status', 'Status', 'status'),
   ],
@@ -998,7 +1069,7 @@ const quotation = {
   rowActions: [
     {
       key: 'revise',
-      label: 'Revise Quotation',
+      label: 'Revise',
       show: (r) => !['Superseded', 'Accepted'].includes(getEffectiveQuotationStatus ? getEffectiveQuotationStatus(r) : r.status),
       run: async (r) => {
         const resp = await runAction('Quotation', r.name, 'revise');
@@ -1006,7 +1077,6 @@ const quotation = {
         if (newName) openQuotation(newName);
         return newName ? `Revision ${newName} created.` : 'Revision created.';
       },
-
     },
     {
       key: 'approve',
@@ -1019,7 +1089,7 @@ const quotation = {
     },
     {
       key: 'order',
-      label: 'Create order',
+      label: 'Order',
       show: (r) => (getEffectiveQuotationStatus ? getEffectiveQuotationStatus(r) : r.status) === 'Approved',
       run: async (r) => {
         const soResult = await runAction('Quotation', r.name, 'make_sales_order');
@@ -1039,18 +1109,19 @@ const quotation = {
     },
     {
       key: 'download_pdf',
-      label: 'Download PDF',
+      label: 'PDF',
       variant: 'contained',
       sx: {
         bgcolor: '#1e3a8a',
         '&:hover': { bgcolor: '#0d2b56' },
         color: '#ffffff',
-        fontSize: 12,
-        fontWeight: 500,
-        py: 0.2,
-        px: 1,
+        fontSize: '0.78rem',
+        fontWeight: 600,
+        py: 0.25,
+        px: 0.9,
         textTransform: 'none',
-        boxShadow: '0 1px 3px rgba(13, 43, 86, 0.2)',
+        borderRadius: '4px',
+        boxShadow: 'none',
       },
       show: () => true,
       run: async (r) => {
@@ -1224,7 +1295,7 @@ const salesOrder = {
     sum(cur('discount_amount', 'Discount Amount')),
     num('gst_percent', 'GST (%)', { max: 100, default: () => 18, summary: true, editable: true }),
     sum(cur('tax_amount', 'GST Amount')),
-    sum(cur('grand_total', 'Grand Total')),
+    sum(cur('grand_total', 'Grand Total', { dp: 0 })),
   ],
   summaryColumns: 8,
 
@@ -1830,6 +1901,182 @@ const cncMachine = {
   ],
 };
 
+const cncMachineLog = {
+  doctype: 'CNC Machine Log',
+  title: 'CNC Operation Tracking',
+  plural: 'CNC Operation Logs',
+  subtitle: 'Operation-wise CNC machine execution, sequence tracking, and rejection recording.',
+  fields: [
+    link('machine', 'CNC Machine', 'CNC Machine', { required: true, filter: (r) => r.status === 'Active' }),
+    date('production_date', 'Date', { required: true }),
+    sel('operation_sequence', 'Operation Sequence', [
+      'Operation 1: Parting',
+      'Operation 2: Side Shaping 1',
+      'Operation 3: Side Shaping 2',
+      'Operation 4: Other',
+    ], { required: true, default: () => 'Operation 1: Parting' }),
+    link('product', 'Product', 'Product', { required: true }),
+    t('production_batch', 'Production Batch Ref'),
+    t('operator', 'Operator / Worker'),
+    sel('shift', 'Shift', ['Morning', 'Evening', 'Night'], { default: () => 'Morning' }),
+    num('input_qty', 'Input Quantity', { positive: true, required: true }),
+    num('accepted_qty', 'Accepted Quantity', { positive: true, required: true }),
+    num('rejected_qty', 'Rejected Quantity', { min: 0 }),
+    ro(num('pending_qty', 'Pending Quantity')),
+    t('rejection_reason', 'Rejection Reason'),
+    sel('rejection_status', 'Rejection Status', ['Scrap', 'Rework', 'Inspection Hold'], { default: () => 'Scrap' }),
+    { name: 'remarks', label: 'Remarks', type: 'textarea' },
+  ],
+  compute: (v) => {
+    const input = Number(v.input_qty) || 0;
+    const accepted = Number(v.accepted_qty) || 0;
+    const rejected = Number(v.rejected_qty) || 0;
+    const pending = Math.max(0, input - (accepted + rejected));
+    return { top: { pending_qty: pending } };
+  },
+  validate: (v) => {
+    const e = {};
+    const input = Number(v.input_qty) || 0;
+    const accepted = Number(v.accepted_qty) || 0;
+    const rejected = Number(v.rejected_qty) || 0;
+    if (accepted + rejected > input) {
+      e.accepted_qty = `Accepted + Rejected (${accepted + rejected}) exceeds Input (${input})`;
+    }
+    return e;
+  },
+  columns: [
+    col('name', 'Log ID'),
+    col('production_date', 'Date', 'date'),
+    col('machine', 'Machine'),
+    col('operation_sequence', 'Sequence'),
+    col('product', 'Product'),
+    col('operator', 'Operator'),
+    col('shift', 'Shift'),
+    col('input_qty', 'Input Qty', 'number'),
+    col('accepted_qty', 'Accepted', 'number'),
+    col('rejected_qty', 'Rejected', 'number'),
+    col('pending_qty', 'Pending', 'number'),
+  ],
+};
+
+const externalGrindingLog = {
+  doctype: 'External Grinding Log',
+  title: 'External Grinding Tracking',
+  plural: 'External Grinding Logs',
+  subtitle: 'Dispatch outward to external grinding and receipt inward tracking.',
+  fields: [
+    t('job_reference', 'Job / Batch Ref', { required: true }),
+    link('product', 'Product', 'Product', { required: true }),
+    link('vendor', 'Grinding Vendor', 'Vendor', { required: true }),
+    t('challan_no', 'Challan / Dispatch Note #'),
+    date('outward_date', 'Sent Date', { required: true }),
+    num('sent_qty', 'Sent Qty', { positive: true, required: true }),
+    link('uom', 'UOM', 'UOM', { default: () => 'PCS' }),
+    date('inward_date', 'Received Date'),
+    num('accepted_qty', 'Accepted / Good Qty', { min: 0 }),
+    num('rejected_qty', 'Rejected Qty', { min: 0 }),
+    ro(num('pending_qty', 'Pending with Vendor')),
+    t('rejection_reason', 'Rejection Reason / Notes'),
+    sel('grinding_status', 'Status', ['Dispatched', 'Partially Received', 'Completed', 'Cancelled'], { default: () => 'Dispatched' }),
+    { name: 'remarks', label: 'Remarks', type: 'textarea' },
+  ],
+  compute: (v) => {
+    const sent = Number(v.sent_qty) || 0;
+    const accepted = Number(v.accepted_qty) || 0;
+    const rejected = Number(v.rejected_qty) || 0;
+    const pending = Math.max(0, sent - (accepted + rejected));
+    return { top: { pending_qty: pending } };
+  },
+  validate: (v) => {
+    const e = {};
+    const sent = Number(v.sent_qty) || 0;
+    const accepted = Number(v.accepted_qty) || 0;
+    const rejected = Number(v.rejected_qty) || 0;
+    if (accepted + rejected > sent) {
+      e.accepted_qty = `Accepted + Rejected (${accepted + rejected}) exceeds Sent (${sent})`;
+    }
+    return e;
+  },
+  columns: [
+    col('name', 'ID'),
+    col('outward_date', 'Sent Date', 'date'),
+    col('job_reference', 'Job Ref'),
+    col('product', 'Product'),
+    col('vendor', 'Vendor'),
+    col('sent_qty', 'Sent', 'number'),
+    col('accepted_qty', 'Accepted', 'number'),
+    col('rejected_qty', 'Rejected', 'number'),
+    col('pending_qty', 'Pending', 'number'),
+    col('grinding_status', 'Status'),
+  ],
+};
+
+const bondingLog = {
+  doctype: 'Bonding Log',
+  title: 'Bonding Production Log',
+  plural: 'Bonding Production Logs',
+  subtitle: 'Daily bonding output and raw material chemical consumption before roll formation.',
+  fields: [
+    date('production_date', 'Date', { required: true }),
+    t('batch_reference', 'Bonding Batch Reference'),
+    sel('sheet_material', 'Material Selection', ['Oriented Sheet', 'Unoriented Sheet', 'White Fabric'], { required: true, default: () => 'Oriented Sheet' }),
+    num('sheet_qty_kg', 'Sheet / Fabric Consumed (KG)', { positive: true }),
+    num('ipa_qty', 'IPA Consumed', { positive: true }),
+    num('resorcinol_qty', 'Resorcinol Consumed', { positive: true }),
+    num('nylon_powder_kg', 'Nylon Powder Consumed (KG)', { positive: true }),
+    num('bonding_output_kg', 'Bonding Output (KG)', { positive: true, required: true }),
+    link('machine', 'Machine', 'CNC Machine', { filter: (r) => r.status === 'Active' }),
+    t('operator', 'Operator / Worker'),
+    sel('shift', 'Shift', ['Morning', 'Evening', 'Night'], { default: () => 'Morning' }),
+    t('target_roll_id', 'Allocated Roll ID / Downstream Roll'),
+    { name: 'remarks', label: 'Remarks', type: 'textarea' },
+  ],
+  columns: [
+    col('name', 'Log ID'),
+    col('production_date', 'Date', 'date'),
+    col('sheet_material', 'Material'),
+    col('bonding_output_kg', 'Output (KG)', 'number'),
+    col('operator', 'Operator'),
+    col('shift', 'Shift'),
+    col('target_roll_id', 'Roll Ref'),
+  ],
+};
+
+const coatingLog = {
+  doctype: 'Coating Log',
+  title: 'Roll-wise Coating Log',
+  plural: 'Roll-wise Coating Logs',
+  subtitle: 'Coating operations and chemical usage tracked separately for each roll.',
+  fields: [
+    t('roll_id', 'Roll ID / Reference', { required: true }),
+    date('coating_date', 'Date', { required: true }),
+    num('hub_1046m_kg', 'HUB 1046M (KG)', { min: 0 }),
+    num('cl_501_kg', 'CL-501 (KG)', { min: 0 }),
+    num('tolnue_kg', 'TOLNUE (KG)', { min: 0 }),
+    ro(num('coating_total_kg', 'Total Chemical (KG)')),
+    num('roll_meters_coated', 'Meters Coated', { positive: true, required: true }),
+    link('machine', 'Machine', 'CNC Machine', { filter: (r) => r.status === 'Active' }),
+    t('operator', 'Operator / Worker'),
+    sel('shift', 'Shift', ['Morning', 'Evening', 'Night'], { default: () => 'Morning' }),
+    { name: 'remarks', label: 'Remarks', type: 'textarea' },
+  ],
+  compute: (v) => {
+    const hub = Number(v.hub_1046m_kg) || 0;
+    const cl = Number(v.cl_501_kg) || 0;
+    const tolnue = Number(v.tolnue_kg) || 0;
+    return { top: { coating_total_kg: hub + cl + tolnue } };
+  },
+  columns: [
+    col('name', 'Log ID'),
+    col('coating_date', 'Date', 'date'),
+    col('roll_id', 'Roll ID'),
+    col('roll_meters_coated', 'Meters Coated', 'number'),
+    col('coating_total_kg', 'Total Chemical (KG)', 'number'),
+    col('operator', 'Operator'),
+    col('shift', 'Shift'),
+  ],
+};
+
 const shortageClaim = {
   doctype: 'Purchase Shortage Claim',
   title: 'Shortage & Credit Claim',
@@ -1865,10 +2112,16 @@ const shortageClaim = {
 
 /** Route path -> config. */
 export const RESOURCES = {
-  ...quotationMasters,
+  '/currency': currency,
+  '/quotation-currency': currency,
   '/sales-person': salesPerson,
   '/uom': uom, '/product': product, '/category': category, '/process': process, '/purchase': purchase,
   '/quotation': quotation, '/sales-order': salesOrder, '/vendor': vendor, '/customer': customer,
   '/charge': charge, '/dispatch': dispatch, '/customer-return': customerReturn, '/goods-receipt': goodsReceipt,
-  '/cnc-machine': cncMachine, '/shortage-claim': shortageClaim,
+  '/cnc-machine': cncMachine,
+  '/cnc-machine-log': cncMachineLog,
+  '/external-grinding': externalGrindingLog,
+  '/bonding': bondingLog,
+  '/coating': coatingLog,
+  '/shortage-claim': shortageClaim,
 };

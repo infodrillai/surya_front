@@ -52,8 +52,8 @@ export default function DocForm({ config, doc, open, onClose }) {
     if (!quotation || !open || locked || !dirty.current || draftSuppressed.current) return;
     try {
       localStorage.setItem(draftKey, JSON.stringify({ values: getValues(), modified: doc?.modified, saved: new Date().toISOString() }));
-      setDraftMessage('Recovery draft saved on this device. Use Save as Draft to save it to the server.');
-    } catch { setDraftMessage('Device recovery is unavailable. Use Save as Draft to retain your work.'); }
+      setDraftMessage('Recovery draft saved on this device. Use Save & Close to save it to the server.');
+    } catch { setDraftMessage('Device recovery is unavailable. Use Save & Close to retain your work.'); }
   };
   useEffect(() => {
     if (!quotation || !open || locked || !form.formState.isDirty) return;
@@ -203,20 +203,22 @@ export default function DocForm({ config, doc, open, onClose }) {
     notify(unique.length ? `Please fix: ${unique.join(' · ')}` : 'Fix the highlighted fields first.', 'warning');
   };
   const onSave = handleSubmit(async (vals) => {
-    await save.mutateAsync(quotation ? { ...vals, status: doc?.status === 'Approved' ? 'Approved' : 'Sent' } : vals);
+    await save.mutateAsync(quotation ? { ...vals, status: doc?.status === 'Approved' ? 'Approved' : 'Draft' } : vals);
     draftSuppressed.current = true;
     if (quotation) { try { localStorage.removeItem(draftKey); } catch {} }
     await afterChange();
-    notify('Saved');
+    notify(quotation ? 'Quotation saved as draft' : 'Saved');
     onClose();
   }, invalid);
   const onSaveDraft = handleSubmit(async (vals) => {
-    await save.mutateAsync({ ...vals, status: 'Draft' });
+    const saved = await save.mutateAsync(quotation ? { ...vals, status: 'Draft' } : vals);
     draftSuppressed.current = true;
-    try { localStorage.removeItem(draftKey); } catch {}
+    if (quotation) { try { localStorage.removeItem(draftKey); } catch {} }
     await afterChange();
-    notify('Draft saved to server');
-    onClose();
+    notify('Quotation saved as draft');
+    if (isNew && saved?.name) {
+      onClose();
+    }
   }, invalid);
   const onComplete = handleSubmit(async (vals) => {
     const saved = await save.mutateAsync(vals);
@@ -278,12 +280,16 @@ export default function DocForm({ config, doc, open, onClose }) {
         '& .MuiDialog-paper': {
           width: '98vw',
           maxWidth: '1850px',
-          m: 1,
-          maxHeight: '96vh',
+          m: quotation ? 0.5 : 1,
+          height: quotation ? 'calc(100vh - 16px)' : undefined,
+          maxHeight: quotation ? 'calc(100vh - 16px)' : '96vh',
+          display: quotation ? 'flex' : undefined,
+          flexDirection: quotation ? 'column' : undefined,
+          overflow: quotation ? 'hidden' : undefined,
         },
       } : undefined}
     >
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5, pr: 2 }}>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: quotation ? 0.75 : 1.5, flexShrink: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1 }}>
           <span>{isNew ? `New ${config.title}` : `${config.title} ${doc.name}`}</span>
           {config.completable && !isNew && <Chip size="small" color={doc.is_completed ? 'success' : 'default'} label={doc.is_completed ? 'Completed' : 'Draft'} />}
@@ -296,25 +302,40 @@ export default function DocForm({ config, doc, open, onClose }) {
           </IconButton>
         )}
       </DialogTitle>
-      <DialogContent dividers sx={{ px: { xs: 1.5, sm: 2.5 }, py: 1.5 }}>
-        <Stack spacing={2}>
+      <DialogContent
+        dividers
+        sx={{
+          px: quotation ? 1.5 : { xs: 1.5, sm: 2.5 },
+          py: quotation ? 0.75 : 1.5,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          display: 'block',
+          flexDirection: 'unset',
+          flex: 'unset',
+          minHeight: 0,
+        }}
+      >
+        <Stack spacing={quotation ? 0.75 : 2}>
           {/* {locked && <Alert severity="info">This document is read-only{doc?.is_completed ? ' because it is completed. An Admin can reopen it.' : '.'}</Alert>} */}
           {banner && <Alert severity={banner.severity}>{banner.text}</Alert>}
           {quotation && draftMessage && <Alert severity="info">{draftMessage}</Alert>}
           {config.header?.(values, doc)}
           <Box sx={{
             display: 'grid',
-            gap: 1.5,
-            gridTemplateColumns: {
-              xs: '1fr',
-              sm: 'repeat(2, 1fr)',
-              md: isWideForm ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)',
-              lg: isWideForm ? 'repeat(5, 1fr)' : 'repeat(3, 1fr)',
-            },
+            gap: quotation ? 1 : 1.5,
+            gridTemplateColumns: quotation
+              ? { xs: '1fr', sm: 'repeat(2, 1fr)', md: '1.8fr 1.1fr 1fr 1fr 1.1fr' }
+              : {
+                xs: '1fr',
+                sm: 'repeat(2, 1fr)',
+                md: isWideForm ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)',
+                lg: isWideForm ? 'repeat(5, 1fr)' : 'repeat(3, 1fr)',
+              },
+            flexShrink: 0,
           }}>
             {main.map((f) => (
-              <Box key={f.name} sx={{ gridColumn: f.type === 'textarea' ? (isWideForm ? 'span 2' : '1 / -1') : undefined }}>
-                <Field f={{ ...f, readOnly: f.readOnly || (f.readOnlyOnEdit && !isNew) }} name={f.name} control={control} disabled={locked} setValue={setValue} getValues={getValues} />
+              <Box key={f.name} sx={{ gridColumn: (f.type === 'textarea' || f.name === 'remarks' || f.name === 'sales_person') ? (quotation ? '1 / -1' : (isWideForm ? 'span 2' : '1 / -1')) : undefined }}>
+                <Field f={{ ...f, readOnly: f.readOnly || (f.readOnlyOnEdit && !isNew), doctype: config.doctype, docname: doc?.name }} name={f.name} control={control} disabled={locked} setValue={setValue} getValues={getValues} />
               </Box>
             ))}
           </Box>
@@ -342,23 +363,25 @@ export default function DocForm({ config, doc, open, onClose }) {
             ) : (config.tableTabsEmpty ?? 'Choose a product to see its stages.') ? <Typography color="text.secondary">{config.tableTabsEmpty ?? 'Choose a product to see its stages.'}</Typography> : null
           ) : (
             tables.map((t) => (
-              <Box key={t.name}>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>{t.label}</Typography>
+              <Box key={t.name} sx={{ flex: quotation ? 1 : undefined, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                <Typography variant="subtitle2" sx={{ mb: quotation ? 0.25 : 1, fontSize: quotation ? '0.82rem' : undefined, fontWeight: 700 }}>{t.label}</Typography>
                 {tableView(t)}
               </Box>
             ))
           )}
           {summary.length > 0 && (
-            <Paper variant="outlined" sx={{ p: 2, bgcolor: '#eef6f4' }}>
-              <Typography variant="subtitle2" sx={{ mb: 1.5 }}>{config.summaryTitle || 'Summary'}</Typography>
+            <Paper variant="outlined" sx={{ p: quotation ? 0.75 : 2, bgcolor: '#eef6f4', borderRadius: 1.5, flexShrink: 0, mt: quotation ? 'auto' : undefined }}>
+              <Typography variant="caption" sx={{ fontWeight: 700, mb: quotation ? 0.5 : 1.5, display: 'block', color: '#17383e', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                {config.summaryTitle || 'Summary'}
+              </Typography>
               <Box
                 sx={{
                   display: 'grid',
-                  gap: 2,
+                  gap: quotation ? 0.75 : 2,
                   gridTemplateColumns: {
-                    xs: '1fr',
-                    sm: 'repeat(2, 1fr)',
-                    md: `repeat(${config.summaryColumns || Math.min(summary.length, 6)}, 1fr)`,
+                    xs: 'repeat(2, 1fr)',
+                    sm: 'repeat(4, 1fr)',
+                    md: `repeat(${config.summaryColumns || Math.min(summary.length, 8)}, 1fr)`,
                   },
                 }}
               >
@@ -376,11 +399,19 @@ export default function DocForm({ config, doc, open, onClose }) {
           )}
         </Stack>
       </DialogContent>
-      <DialogActions sx={{ px: 3, py: 2 }}>
+      <DialogActions sx={{ px: 2, py: quotation ? 0.75 : 2, flexShrink: 0 }}>
         <Button onClick={cancel} disabled={busy}>{quotation ? 'Cancel' : 'Close'}</Button>
-        {quotation && !locked && doc?.status !== 'Approved' && <Button variant="outlined" onClick={onSaveDraft} disabled={busy}>Save as Draft</Button>}
         {config.completable && !isNew && doc.is_completed && isAdmin && <Button color="warning" onClick={onReopen} disabled={busy}>Reopen</Button>}
-        {!locked && <Button variant="outlined" onClick={onSave} disabled={busy}>Save</Button>}
+        {!locked && quotation && (
+          <Button variant="outlined" color="primary" onClick={onSaveDraft} disabled={busy}>
+            Save as Draft
+          </Button>
+        )}
+        {!locked && (
+          <Button variant={quotation ? 'contained' : 'outlined'} onClick={onSave} disabled={busy}>
+            {quotation ? 'Save & Close' : 'Save'}
+          </Button>
+        )}
         {!locked && config.completable && <Button variant="contained" onClick={onComplete} disabled={busy}>Save and complete</Button>}
       </DialogActions>
     </Dialog>

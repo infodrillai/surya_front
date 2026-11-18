@@ -44,13 +44,15 @@ function Shell() {
 
 
 export default function App() {
-  const { status, bootstrap } = useAuthStore();
+  const { status, user, bootstrap } = useAuthStore();
   const { toast, clearToast } = useUiStore();
   useEffect(() => { bootstrap(); }, [bootstrap]);
 
+  const isAuthed = status === 'authed' && user && user !== 'Guest';
+
   return (
     <>
-      {status === 'loading' ? <Loading text="Starting…" /> : status === 'anon' ? <Login /> : <Shell />}
+      {status === 'loading' ? <Loading text="Starting…" /> : !isAuthed ? <Login /> : <Shell />}
       <SalesOrderQtyDialogHost />
       <ReturnDialogHost />
       <GoodsReceiptDialogHost />

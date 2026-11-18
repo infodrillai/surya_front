@@ -13,6 +13,17 @@ describe('quotation preview', () => {
     expect(result.top.discount_amount).toBe(13.5);
     expect(result.top.grand_total).toBeCloseTo(256.5);
   });
+  it('applies multiple item discounts and then the overall discount', () => {
+    const result = compute({
+      items: [
+        { quantity: 1, rate: 100, pricing_mode: 'Rate', item_discount_percent: 10 },
+        { quantity: 1, rate: 100, pricing_mode: 'Rate', item_discount_percent: 20 },
+      ],
+    });
+    expect(result.top.subtotal).toBe(170);
+    expect(result.top.discount_amount).toBe(8.5);
+    expect(result.top.grand_total).toBeCloseTo(161.5);
+  });
   it('converts the cost base for currency and quoted units', () => {
     const result = compute({ currency: 'USD', exchange_rate: 50, items: [{ quantity: 2, production_cost: 100, reference_exchange_rate: 1, conversion_factor: 2, pricing_mode: 'Percentage', pr: 25, item_discount_percent: 10 }] });
     expect(result.rows.items[0].rate).toBe(5);

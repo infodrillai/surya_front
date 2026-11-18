@@ -355,32 +355,57 @@ export default function CustomerOutstandingPage() {
             Sync with Tally
           </Button>
 
-          {/* Export CSV */}
+          {/* Refresh */}
           <Button
-            variant="outlined"
+            variant="contained"
+            size="small"
+            startIcon={
+              <RefreshRounded
+                fontSize="small"
+                sx={{
+                  animation: isLoading ? 'spin 1s linear infinite' : 'none',
+                  '@keyframes spin': { '100%': { transform: 'rotate(360deg)' } },
+                }}
+              />
+            }
+            onClick={() => refetch()}
+            disabled={isLoading}
+            sx={{
+              bgcolor: '#0284c7',
+              color: '#ffffff',
+              '&:hover': { bgcolor: '#0369a1' },
+              borderRadius: '8px',
+              textTransform: 'none',
+              boxShadow: 'none',
+              fontWeight: 600,
+              py: 0.9,
+              px: 2,
+            }}
+          >
+            Refresh
+          </Button>
+
+          {/* Export Excel */}
+          <Button
+            variant="contained"
+            size="small"
             startIcon={<FileDownloadOutlined />}
             onClick={handleExportCsv}
             disabled={!filteredCustomers.length}
             sx={{
+              bgcolor: '#16a34a',
               color: '#ffffff',
-              borderColor: 'rgba(255,255,255,0.3)',
-              '&:hover': { borderColor: '#ffffff', bgcolor: 'rgba(255,255,255,0.08)' },
+              '&:hover': { bgcolor: '#15803d' },
+              borderRadius: '8px',
+              textTransform: 'none',
+              boxShadow: 'none',
+              fontWeight: 600,
               py: 0.9,
-              borderRadius: 2,
+              px: 2,
             }}
           >
-            Export CSV
+            Export Excel
           </Button>
-
-          {/* Refresh */}
-          <Tooltip title="Refresh Dashboard Data">
-            <IconButton
-              onClick={() => refetch()}
-              sx={{ color: '#ffffff', bgcolor: 'rgba(255,255,255,0.1)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}
-            >
-              <RefreshRounded fontSize="small" />
-            </IconButton>
-          </Tooltip>
         </Stack>
       </Paper>
 

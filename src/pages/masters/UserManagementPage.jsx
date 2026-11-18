@@ -30,6 +30,7 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
+  Edit as EditIcon,
   Key as KeyIcon,
   ManageAccounts as UserManageIcon,
   Person as PersonIcon,
@@ -44,6 +45,7 @@ import { palette } from '../../theme';
 export default function UserManagementPage() {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [pwdOpen, setPwdOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [newPassword, setNewPassword] = useState('');
@@ -155,6 +157,44 @@ export default function UserManagementPage() {
     resetPasswordMutation.mutate({ user: selectedUser.name, new_password: newPassword });
   };
 
+  const handleOpenAdd = () => {
+    setIsEditing(false);
+    setDialogError(null);
+    setFormData({
+      email: '',
+      first_name: '',
+      last_name: '',
+      password: '',
+      role: 'Sales Person',
+      employee_id: '',
+      mobile_no: '',
+      address: '',
+    });
+    setCreateOpen(true);
+  };
+
+  const handleOpenEdit = (u) => {
+    setIsEditing(true);
+    setDialogError(null);
+    let assignedRole = 'Sales Person';
+    if ((u.roles || []).includes('Administrator') || (u.roles || []).includes('System Manager')) assignedRole = 'Administrator';
+    else if ((u.roles || []).includes('Store Executive')) assignedRole = 'Store Executive';
+    else if ((u.roles || []).includes('PU Operator')) assignedRole = 'PU Operator';
+    else if ((u.roles || []).includes('Belt Operator')) assignedRole = 'Belt Operator';
+
+    setFormData({
+      email: u.email || u.name,
+      first_name: u.first_name || '',
+      last_name: u.last_name || '',
+      password: '',
+      role: assignedRole,
+      employee_id: u.employee_id || '',
+      mobile_no: u.mobile_no || '',
+      address: u.address || '',
+    });
+    setCreateOpen(true);
+  };
+
   const handleCreateSubmit = (e) => {
     e.preventDefault();
     createUserMutation.mutate(formData);
@@ -167,11 +207,11 @@ export default function UserManagementPage() {
           <Stack direction="row" spacing={1.5} alignItems="center">
             <UserManageIcon sx={{ fontSize: 28, color: palette.teal }} />
             <Typography variant="h5" sx={{ fontWeight: 700, color: '#12262a' }}>
-              User Management
+              Roles Management
             </Typography>
           </Stack>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Manage ERP users, assign roles (Administrator / Sales Person), and control account status.
+            Manage ERP users, assign roles and control account status.
           </Typography>
         </Box>
         <Stack direction="row" spacing={1.5}>
@@ -183,7 +223,7 @@ export default function UserManagementPage() {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => setCreateOpen(true)}
+            onClick={handleOpenAdd}
             sx={{ bgcolor: palette.teal, '&:hover': { bgcolor: '#0b5b50' }, borderRadius: 2 }}
           >
             Create User
@@ -201,10 +241,10 @@ export default function UserManagementPage() {
         <Table>
           <TableHead sx={{ bgcolor: '#f8faf9' }}>
             <TableRow>
-              <TableCell sx={{ fontWeight: 700 }}>User / Name</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Email</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Role</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Sales Person Profile</TableCell>
+              {/* <TableCell sx={{ fontWeight: 700 }}>Sales Person Profile</TableCell> */}
               <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
               <TableCell align="right" sx={{ fontWeight: 700 }}>Actions</TableCell>
             </TableRow>
@@ -252,6 +292,30 @@ export default function UserManagementPage() {
                           variant="outlined"
                           sx={{ fontWeight: 700 }}
                         />
+                      ) : (u.roles || []).includes('Store Executive') ? (
+                        <Chip
+                          label="Store Executive"
+                          size="small"
+                          color="warning"
+                          variant="outlined"
+                          sx={{ fontWeight: 600 }}
+                        />
+                      ) : (u.roles || []).includes('PU Operator') ? (
+                        <Chip
+                          label="PU Operator"
+                          size="small"
+                          color="info"
+                          variant="outlined"
+                          sx={{ fontWeight: 600 }}
+                        />
+                      ) : (u.roles || []).includes('Belt Operator') ? (
+                        <Chip
+                          label="Belt Operator"
+                          size="small"
+                          color="secondary"
+                          variant="outlined"
+                          sx={{ fontWeight: 600 }}
+                        />
                       ) : isSales ? (
                         <Chip
                           label="Sales Person"
@@ -264,22 +328,7 @@ export default function UserManagementPage() {
                         <Chip label="User" size="small" variant="outlined" />
                       )}
                     </TableCell>
-                    <TableCell>
-                      {u.sales_person_name ? (
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            {u.sales_person_name}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {u.employee_id || 'Linked'} {u.mobile_no ? `· ${u.mobile_no}` : ''}
-                          </Typography>
-                        </Box>
-                      ) : (
-                        <Typography variant="caption" color="text.secondary">
-                          None
-                        </Typography>
-                      )}
-                    </TableCell>
+
                     <TableCell>
                       <Stack direction="row" spacing={1} alignItems="center">
                         <Switch
@@ -299,6 +348,14 @@ export default function UserManagementPage() {
                     </TableCell>
                     <TableCell align="right">
                       <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+                        <Button
+                          size="small"
+                          startIcon={<EditIcon fontSize="small" />}
+                          onClick={() => handleOpenEdit(u)}
+                          sx={{ fontSize: 12, textTransform: 'none' }}
+                        >
+                          Edit
+                        </Button>
                         <Button
                           size="small"
                           startIcon={<KeyIcon fontSize="small" />}
@@ -329,10 +386,12 @@ export default function UserManagementPage() {
         </Table>
       </TableContainer>
 
-      {/* Dialog: Create User */}
+      {/* Dialog: Create / Edit User */}
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="sm" fullWidth>
         <form onSubmit={handleCreateSubmit}>
-          <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>Create New User</DialogTitle>
+          <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>
+            {isEditing ? 'Edit User & Role Assignment' : 'Create New User'}
+          </DialogTitle>
           <DialogContent>
             {dialogError && (
               <Alert severity="error" onClose={() => setDialogError(null)} sx={{ mb: 2 }}>
@@ -340,7 +399,9 @@ export default function UserManagementPage() {
               </Alert>
             )}
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
-              Create a Frappe user and securely assign Administrator or Sales Person role.
+              {isEditing
+                ? 'Update user profile and assign role (Administrator, Store Executive, PU Operator, Belt Operator, Sales Person).'
+                : 'Create a Frappe user and securely assign roles.'}
             </Typography>
             <Stack spacing={2}>
               <Stack direction="row" spacing={2}>
@@ -365,6 +426,7 @@ export default function UserManagementPage() {
                 label="Email Address (Login ID)"
                 type="email"
                 required
+                disabled={isEditing}
                 fullWidth
                 size="small"
                 value={formData.email}
@@ -374,12 +436,12 @@ export default function UserManagementPage() {
               <TextField
                 label="Password"
                 type="password"
-                required
+                required={!isEditing}
                 fullWidth
                 size="small"
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                helperText="Must be at least 6 characters"
+                helperText={isEditing ? 'Leave blank to retain current password' : 'Must be at least 6 characters'}
               />
 
               <FormControl fullWidth size="small">
@@ -391,38 +453,11 @@ export default function UserManagementPage() {
                 >
                   <MenuItem value="Sales Person">Sales Person</MenuItem>
                   <MenuItem value="Administrator">Administrator</MenuItem>
+                  <MenuItem value="Store Executive">Store Executive</MenuItem>
+                  <MenuItem value="PU Operator">PU Operator</MenuItem>
+                  <MenuItem value="Belt Operator">Belt Operator</MenuItem>
                 </Select>
               </FormControl>
-
-              {formData.role === 'Sales Person' && (
-                <>
-                  <Divider sx={{ my: 1 }}>Sales Person Master Info</Divider>
-                  <Stack direction="row" spacing={2}>
-                    <TextField
-                      label="Employee ID"
-                      fullWidth
-                      size="small"
-                      placeholder="e.g. EMP-101"
-                      value={formData.employee_id}
-                      onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })}
-                    />
-                    <TextField
-                      label="Mobile Number"
-                      fullWidth
-                      size="small"
-                      value={formData.mobile_no}
-                      onChange={(e) => setFormData({ ...formData, mobile_no: e.target.value })}
-                    />
-                  </Stack>
-                  <TextField
-                    label="Address / Region"
-                    fullWidth
-                    size="small"
-                    value={formData.address}
-                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  />
-                </>
-              )}
             </Stack>
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 2.5 }}>
@@ -435,7 +470,7 @@ export default function UserManagementPage() {
               disabled={createUserMutation.isPending}
               sx={{ bgcolor: palette.teal, '&:hover': { bgcolor: '#0b5b50' } }}
             >
-              {createUserMutation.isPending ? 'Creating…' : 'Create User'}
+              {createUserMutation.isPending ? 'Saving…' : isEditing ? 'Update User' : 'Create User'}
             </Button>
           </DialogActions>
         </form>
@@ -478,4 +513,3 @@ export default function UserManagementPage() {
     </Box>
   );
 }
-

@@ -201,17 +201,51 @@ export default function SalesReportsPage() {
               : `Sales metrics filtered for ${salesPerson?.sales_person_name || 'your account'}.`}
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1.5}>
-          <Tooltip title="Export to CSV">
-            <IconButton onClick={handleExportCSV} sx={{ border: '1px solid #dde5e3' }}>
-              <DownloadIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Refresh">
-            <IconButton onClick={handleRefresh} disabled={isLoading} sx={{ border: '1px solid #dde5e3' }}>
-              <RefreshIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={
+              <RefreshIcon
+                fontSize="small"
+                sx={{
+                  animation: isLoading ? 'spin 1s linear infinite' : 'none',
+                  '@keyframes spin': { '100%': { transform: 'rotate(360deg)' } },
+                }}
+              />
+            }
+            onClick={handleRefresh}
+            disabled={isLoading}
+            sx={{
+              bgcolor: '#0284c7',
+              color: '#ffffff',
+              '&:hover': { bgcolor: '#0369a1' },
+              borderRadius: '8px',
+              textTransform: 'none',
+              boxShadow: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Refresh
+          </Button>
+
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<DownloadIcon fontSize="small" />}
+            onClick={handleExportCSV}
+            sx={{
+              bgcolor: '#16a34a',
+              color: '#ffffff',
+              '&:hover': { bgcolor: '#15803d' },
+              borderRadius: '8px',
+              textTransform: 'none',
+              boxShadow: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Export Excel
+          </Button>
         </Stack>
       </Stack>
 

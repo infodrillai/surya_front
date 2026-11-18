@@ -141,6 +141,13 @@ export async function generateQuotationPDF(rawDoc) {
   const discountedItemCount = items.filter(item => Number(item.item_discount_percent) > 0).length;
   const showDiscountCol = discountedItemCount > 1;
 
+  // When only 1 product has a discount, show that discount directly in the Grand Total section, not under the product
+  const singleDiscountItem = discountedItemCount === 1 ? items.find(item => Number(item.item_discount_percent) > 0) : null;
+  const singleDiscPct = singleDiscountItem ? Number(singleDiscountItem.item_discount_percent || 0) : 0;
+  const singleItemGross = singleDiscountItem ? Number(singleDiscountItem.gross_amount || (Number(singleDiscountItem.quantity || 0) * Number(singleDiscountItem.rate || 0))) : 0;
+  const singleDiscAmt = singleDiscountItem ? Number(singleDiscountItem.item_discount_amount || (singleItemGross * singleDiscPct / 100)) : 0;
+  const singleItemName = singleDiscountItem ? getDisplayName(singleDiscountItem) : '';
+
   const prodImageMap = {};
   allProducts.forEach((p) => {
     const img = (p.image || '').trim();
@@ -159,14 +166,16 @@ export async function generateQuotationPDF(rawDoc) {
       const itemDiscountPct = Number(item.item_discount_percent || 0);
       const grossAmount = Number(item.gross_amount || qty * rate);
       const itemDiscountAmt = Number(item.item_discount_amount || (grossAmount * itemDiscountPct / 100));
-      const amount = Number(item.amount || grossAmount - itemDiscountAmt);
+      const netAmount = Number(item.amount || grossAmount - itemDiscountAmt);
+      // When single discount is moved to Grand Total section, display gross amount in line item
+      const displayAmount = (discountedItemCount === 1) ? grossAmount : netAmount;
       const uom = item.uom || 'PCS';
       const externalCode = item.external_code || '';
       const suryaCode = item.product || '';
       const productImage = item.image || (suryaCode ? prodImageMap[suryaCode] : '') || '';
 
       totalUnits += qty;
-      subtotalCalc += amount;
+      subtotalCalc += displayAmount;
 
       return `
     <tr style="border-bottom: 1px solid #e5e7eb;">
@@ -175,13 +184,14 @@ export async function generateQuotationPDF(rawDoc) {
       </td>
       <td style="padding: 7px 8px; color: #000000;">
         <div style="display: flex; align-items: flex-start; gap: 8px;">
-          ${productImage ? `<img src="${productImage}" style="width: 36px; height: 36px; object-fit: contain; border: 1px solid #e5e7eb; border-radius: 4px; flex-shrink: 0;" onerror="this.style.display='none'" />` : ''}
+          <div style="width: 38px; height: 38px; min-width: 38px; border: 1px solid #d1d5db; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #f9fafb; flex-shrink: 0;">
+            ${productImage ? `<img src="${productImage}" style="width: 100%; height: 100%; object-fit: contain;" onerror="this.style.display='none'" />` : `<span style="font-size: 8px; color: #9ca3af;">—</span>`}
+          </div>
           <div>
             <div style="font-weight: 700; font-size: 11.5px; color: #000000;">${displayName}</div>
             ${desc ? `<div style="font-size: 9.5px; color: #4b5563; font-style: italic; margin-top: 2px;">${desc.replace(/\n/g, '<br/>')}</div>` : ''}
             ${suryaCode ? `<div style="font-size: 9px; color: #4b5563; margin-top: 2px;"><span style="font-weight:600;">Surya Code:</span> ${suryaCode}</div>` : ''}
             ${externalCode ? `<div style="font-size: 9px; color: #0284c7; margin-top: 1px;"><span style="font-weight:600;">Customer/Competitor Code:</span> ${externalCode}</div>` : ''}
-            ${!showDiscountCol && itemDiscountPct > 0 ? `<div style="font-size: 9px; color: #16a34a; font-weight:600; margin-top: 2px;">Discount: ${itemDiscountPct}% (−${formatCurrency(itemDiscountAmt)})</div>` : ''}
           </div>
         </div>
       </td>
@@ -196,26 +206,36 @@ export async function generateQuotationPDF(rawDoc) {
       </td>
       ${showDiscountCol ? `<td style="padding: 7px 8px; text-align: right; color: #16a34a; font-size: 10.5px; font-weight: 600;">${itemDiscountPct > 0 ? `${itemDiscountPct}%` : '—'}</td>` : ''}
       <td style="padding: 7px 8px; text-align: right; font-weight: 700; color: #000000; font-size: 11.5px;">
-        ${formatCurrency(amount)}
+        ${formatCurrency(displayAmount)}
       </td>
     </tr>
   `;
     })
     .join('');
 
-  const rawSubtotal = Number(qDoc.subtotal || subtotalCalc);
+  const rawSubtotal = Number(discountedItemCount === 1 ? subtotalCalc : (qDoc.subtotal ?? subtotalCalc));
   const discountPercent = Number(qDoc.discount_percent || 0);
-  const discountAmount = Number(qDoc.discount_amount || (rawSubtotal * discountPercent) / 100);
-  const netGoodsValue = Math.max(0, rawSubtotal - discountAmount);
+  const baseForQuotationDiscount = Math.max(0, rawSubtotal - singleDiscAmt);
+  const discountAmount = Number(qDoc.discount_amount ?? (baseForQuotationDiscount * discountPercent) / 100);
+  const netGoodsValue = Math.max(0, baseForQuotationDiscount - discountAmount);
 
   const packingCharges = Number(qDoc.packing_charges || 0);
   const transportCharges = Number(qDoc.transport_charges || 0);
   const totalExtraCharges = packingCharges + transportCharges;
 
-  const gstPercent = Number(qDoc.gst_percent || 18);
-  const taxableTotal = netGoodsValue + totalExtraCharges;
-  const gstAmount = Number(qDoc.tax_amount || (taxableTotal * gstPercent) / 100);
-  const grandTotal = Number(qDoc.grand_total || taxableTotal + gstAmount);
+  const gstPercent = Number(qDoc.gst_percent ?? 18);
+  const itemTaxAmount = items.reduce((total, item) => {
+    const itemGst = Number(item.gst_percent || 0);
+    if (!itemGst) return total;
+    const qty = Number(item.quantity || 0);
+    const rate = Number(item.rate || 0);
+    const itemDiscount = Number(item.item_discount_percent || 0);
+    const itemAmount = Number(item.amount ?? qty * rate * (1 - itemDiscount / 100));
+    return total + itemAmount * itemGst / (100 + itemGst);
+  }, 0) * (1 - discountPercent / 100);
+  const chargesTax = totalExtraCharges * gstPercent / 100;
+  const gstAmount = Number(qDoc.tax_amount ?? itemTaxAmount + chargesTax);
+  const grandTotal = Number(qDoc.grand_total ?? netGoodsValue + totalExtraCharges + chargesTax);
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -515,7 +535,7 @@ export async function generateQuotationPDF(rawDoc) {
           <tr class="table-total-row">
             <td colspan="3" style="font-weight: 800; color: #000000;">TOTAL QUANTITY &amp; SUBTOTAL</td>
             <td style="text-align: right; font-weight: 800; color: #000000;">${fmtNum(totalUnits)}</td>
-            <td colspan="${showDiscountCol ? 2 : 1}" style="text-align: right; font-size: 10px; color: #374151;">Subtotal (excl. tax):</td>
+            <td colspan="${showDiscountCol ? 2 : 1}" style="text-align: right; font-size: 10px; color: #374151;">Subtotal:</td>
             <td style="text-align: right; font-weight: 800; color: #000000;">${formatCurrency(rawSubtotal)}</td>
           </tr>
         </tbody>
@@ -530,16 +550,26 @@ export async function generateQuotationPDF(rawDoc) {
             </td>
             <td class="summary-value">${formatCurrency(rawSubtotal)}</td>
           </tr>
-
-          ${discountAmount > 0
-      ? `
+          ${singleDiscAmt > 0 ? `
           <tr>
             <td class="summary-label">
-              <div>Discount (${discountPercent}%)</div>
-              <div class="summary-subtext">Approved commercial discount</div>
+              <div>Discount (${singleDiscPct}%)</div>
+              ${singleItemName ? `<div class="summary-subtext">${singleItemName}</div>` : ''}
             </td>
-            <td class="summary-value">- ${formatCurrency(discountAmount)}</td>
+            <td class="summary-value" style="color: #16a34a;">- ${formatCurrency(singleDiscAmt)}</td>
           </tr>
+          ` : ''}
+
+          ${(discountPercent > 0 && discountAmount > 0) ? `
+          <tr>
+            <td class="summary-label">
+              <div>Overall Quotation Discount (${discountPercent}%)</div>
+            </td>
+            <td class="summary-value" style="color: #16a34a;">- ${formatCurrency(discountAmount)}</td>
+          </tr>
+          ` : ''}
+          ${discountAmount > 0
+      ? `
           <tr>
             <td class="summary-label">
               <div>Net Goods Value</div>

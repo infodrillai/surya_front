@@ -44,6 +44,32 @@ export async function request(path, { method = 'GET', body, params } = {}) {
   return data;
 }
 
+export async function uploadFile(file, { doctype, docname, fieldname }) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('is_private', '0');
+  if (doctype) formData.append('doctype', doctype);
+  if (docname) formData.append('docname', docname);
+  if (fieldname) formData.append('fieldname', fieldname);
+
+  const response = await fetch('/api/method/upload_file', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      ...(csrfToken ? { 'X-Frappe-CSRF-Token': csrfToken } : {}),
+    },
+    body: formData,
+  });
+  let data = null;
+  try { data = await response.json(); } catch { /* empty body */ }
+  if (response.status === 401) onUnauthorized();
+  if (!response.ok) throw new ApiError(readError(data, response.status), response.status);
+  const fileUrl = data?.message?.file_url;
+  if (!fileUrl) throw new ApiError('The upload completed without returning a file URL.', response.status);
+  return fileUrl;
+}
+
 /** Call a whitelisted method. Reads use GET (no CSRF needed), writes POST. */
 export const call = async (method, args = {}, { get = false } = {}) => {
   if (get) {

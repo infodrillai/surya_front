@@ -118,6 +118,7 @@ export const beltStageConfig = (stage) => ({
           const p = (await db.table('Product').get(values.product)) || (await getDoc('Product', values.product));
           if (p) {
             setValue('belt_type', p.belt_type || 'Grommed');
+            setValue('belt_color', p.belt_color || 'Brown');
             setValue('length', p.belt_length !== undefined && p.belt_length !== null ? p.belt_length : '');
             setValue('width', p.belt_width !== undefined && p.belt_width !== null ? p.belt_width : '');
             setValue('holes', p.hole !== undefined && p.hole !== null ? p.hole : '');
@@ -128,8 +129,14 @@ export const beltStageConfig = (stage) => ({
         } catch (_) { }
       },
     }),
+    sel('belt_color', 'Belt Color', ['Brown', 'Black'], { default: () => 'Brown' }),
     num('quantity', 'Quantity produced', { positive: true }),
     date('posting_date', 'Date'),
+    t('operator', 'Operator / Worker'),
+    { name: 'machine', label: 'Machine', type: 'link', doctype: 'CNC Machine' },
+    sel('shift', 'Shift', ['Morning', 'Evening', 'Night'], { default: () => 'Morning' }),
+    ...(stage <= 2 ? [sel('sheet_material', 'Material Selection (Nylon Sheet / Fabric)', ['Oriented Sheet', 'Unoriented Sheet', 'White Fabric'], { default: () => 'Oriented Sheet' })] : []),
+    ...(stage === 3 ? [num('roll_consumed', 'Roll Consumption (Meters)', { positive: true }), t('roll_id', 'Roll ID / Reference')] : []),
     ...(stage === 2 ? [num('size', 'Size')] : []),
     ...(stage === 2 ? [num('length', 'Length')] : []),
     ...(stage === 2 ? [num('width', 'Width')] : []),
@@ -182,7 +189,11 @@ export const beltStageConfig = (stage) => ({
   columns: [
     col('name', 'Batch No'),
     col('product', 'Product'),
+    col('belt_color', 'Color'),
     col('quantity', 'Quantity', 'number'),
+    col('machine', 'Machine'),
+    col('operator', 'Operator'),
+    col('shift', 'Shift'),
     col('unit_cost', 'Unit cost', 'currency'),
     col('batch_total', 'Batch total', 'currency'),
     status,

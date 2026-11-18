@@ -1,8 +1,8 @@
-import { Box, Autocomplete, Checkbox, FormControlLabel, MenuItem, TextField, Typography } from '@mui/material';
+import { Box, Autocomplete, Button, Checkbox, CircularProgress, FormControlLabel, MenuItem, TextField, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Controller } from 'react-hook-form';
-import { getList } from '../api/client';
+import { getList, uploadFile } from '../api/client';
 import { useMasters } from '../hooks/useMasters';
 import { fmtNum } from '../lib/format';
 
@@ -10,7 +10,13 @@ import { fmtNum } from '../lib/format';
 export const labelOf = (master, r) => {
   if (master === 'Product') {
     const ratioPart = r.ratio != null ? ` (Ratio: ${r.ratio})` : '';
-    return `${r.product_name || r.product_code || r.name}${ratioPart}`;
+    const compPart = r.competitor_company_code ? ` [Comp: ${r.competitor_company_code}]` : '';
+    return `${r.product_name || r.product_code || r.name}${compPart}${ratioPart}`;
+  }
+  if (master === 'Currency') {
+    const sym = r.symbol ? ` (${r.symbol})` : '';
+    const nm = r.currency_name && r.currency_name !== r.name ? `${r.name} - ${r.currency_name}` : (r.currency_name || r.name);
+    return `${nm}${sym}`;
   }
   return r.name;
 };
@@ -27,6 +33,144 @@ const ZERO_BLANK_FIELDS = [
   'high_stock_limit',
 ];
 
+function ImageInput({ f, rf, disabled, rowPath }) {
+  const inputRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+  const value = String(rf.value || '').trim();
+
+  const isTableRow = Boolean(rowPath || f.readOnly);
+
+  const selectFile = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (file.type && !file.type.startsWith('image/')) {
+      setError('Choose an image file.');
+      return;
+    }
+
+    setError('');
+    setUploading(true);
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const dataUrl = e.target.result;
+      try {
+        const fileUrl = await uploadFile(file, {
+          doctype: f.docname ? f.doctype : undefined,
+          docname: f.docname || undefined,
+          fieldname: f.docname ? f.name : undefined,
+        });
+        rf.onChange(fileUrl || dataUrl);
+      } catch (uploadError) {
+        console.warn('Image upload endpoint notice, using local data URL:', uploadError);
+        rf.onChange(dataUrl);
+      } finally {
+        setUploading(false);
+      }
+    };
+    reader.onerror = () => {
+      setError('Could not read image file.');
+      setUploading(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  if (isTableRow) {
+    return (
+      <Box
+        sx={{
+          width: 34,
+          height: 34,
+          minWidth: 34,
+          borderRadius: 1,
+          border: '1px solid #d1d5db',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+          bgcolor: '#f8fafc',
+          m: 'auto',
+        }}
+      >
+        {value ? (
+          <Box
+            component="img"
+            src={value}
+            alt="Product"
+            sx={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          />
+        ) : (
+          <Typography variant="caption" sx={{ fontSize: '0.65rem', color: '#94a3b8' }}>—</Typography>
+        )}
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: f.minWidth ?? 140 }}>
+      <Box
+        sx={{
+          width: 52,
+          height: 52,
+          minWidth: 52,
+          borderRadius: 1.5,
+          border: '1px solid #cbd5e1',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+          bgcolor: '#f8fafc',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+        }}
+      >
+        {value ? (
+          <Box
+            component="img"
+            src={value}
+            alt={f.label || 'Product'}
+            sx={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            onError={(event) => { event.currentTarget.style.display = 'none'; }}
+          />
+        ) : (
+          <Typography variant="caption" sx={{ fontSize: '0.65rem', color: '#94a3b8', textAlign: 'center', px: 0.5 }}>
+            No image
+          </Typography>
+        )}
+      </Box>
+      {!disabled && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          <input ref={inputRef} hidden type="file" accept="image/*" onChange={selectFile} />
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            sx={{ textTransform: 'none', fontSize: '0.75rem', py: 0.25, px: 1 }}
+          >
+            {uploading ? <CircularProgress size={16} sx={{ mr: 0.5 }} /> : null}
+            {value ? 'Change from device' : 'Choose from device / drive'}
+          </Button>
+          {value && (
+            <Button
+              size="small"
+              color="error"
+              onClick={() => { rf.onChange(''); setError(''); }}
+              disabled={uploading}
+              sx={{ textTransform: 'none', fontSize: '0.7rem', py: 0, px: 0.5, alignSelf: 'flex-start' }}
+            >
+              Remove
+            </Button>
+          )}
+        </Box>
+      )}
+      {error && <Typography variant="caption" color="error">{error}</Typography>}
+    </Box>
+  );
+}
+
 function LinkInput({ f, rf, error, disabled, options, labels, rowPath, setValue, getValues }) {
   const handleChange = (_, v) => {
     const val = v ?? '';
@@ -42,7 +186,7 @@ function LinkInput({ f, rf, error, disabled, options, labels, rowPath, setValue,
         },
       });
       // onChange may be async; fire-and-forget
-      Promise.resolve(f.onChange(proxy, { values: getValues() })).catch((e) => console.warn('Field onChange error:', e));
+      Promise.resolve(f.onChange(proxy, { values: getValues(), setValue, getValues })).catch((e) => console.warn('Field onChange error:', e));
     }
   };
   return (
@@ -84,11 +228,44 @@ function LinkInput({ f, rf, error, disabled, options, labels, rowPath, setValue,
 }
 
 function MasterLink({ f, rf, error, disabled, rowPath, setValue, getValues }) {
-  const rows = useMasters(f.master);
+  const cachedRows = useMasters(f.master);
+  const { data: serverRows = [] } = useQuery({
+    queryKey: ['masterLinkFallback', f.master],
+    queryFn: async () => {
+      try {
+        const res = await getList(f.master);
+        return Array.isArray(res) ? res : [];
+      } catch (err) {
+        return [];
+      }
+    },
+    enabled: !cachedRows || cachedRows.length === 0,
+    staleTime: 60000,
+  });
+
+  const rows = cachedRows && cachedRows.length > 0 ? cachedRows : serverRows;
+
   const { options, labels } = useMemo(() => {
-    const list = rows.filter((r) => !f.filter || f.filter(r));
-    return { options: list.map((r) => r.name), labels: Object.fromEntries(list.map((r) => [r.name, labelOf(f.master, r)])) };
-  }, [rows, f]);
+    let list = rows.filter((r) => !f.filter || f.filter(r));
+    if (f.master === 'Currency' && list.length === 0) {
+      list = [
+        { name: 'INR', currency_name: 'INR', symbol: '₹' },
+        { name: 'USD', currency_name: 'USD', symbol: '$' },
+        { name: 'EUR', currency_name: 'EUR', symbol: '€' },
+        { name: 'GBP', currency_name: 'GBP', symbol: '£' },
+        { name: 'AED', currency_name: 'AED', symbol: 'د.إ' },
+      ];
+    }
+    const optSet = new Set(list.map((r) => r.name));
+    if (rf.value && !optSet.has(rf.value)) {
+      list = [{ name: rf.value, currency_name: rf.value }, ...list];
+    }
+    return {
+      options: list.map((r) => r.name),
+      labels: Object.fromEntries(list.map((r) => [r.name, labelOf(f.master, r)])),
+    };
+  }, [rows, f, rf.value]);
+
   return <LinkInput {...{ f, rf, error, disabled, options, labels, rowPath, setValue, getValues }} />;
 }
 
@@ -108,23 +285,7 @@ export default function Field({ f, name, control, disabled, rowPath, setValue, g
       render={({ field: rf, fieldState: { error } }) => {
         const label = f.label + (f.required ? ' *' : '');
         const off = disabled || f.readOnly;
-        if (f.type === 'image') {
-          const val = String(rf.value || '').trim();
-          const hasImg = val && (val.startsWith('/files/') || val.startsWith('/private/files/') || val.startsWith('files/') || val.startsWith('http://') || val.startsWith('https://') || val.startsWith('data:image/'));
-          return hasImg ? (
-            <Box
-              component="img"
-              src={val}
-              alt={f.label}
-              sx={{ width: 44, height: 44, objectFit: 'contain', borderRadius: 1, border: '1px solid #e0e0e0', bgcolor: '#fafafa' }}
-              onError={(e) => { e.currentTarget.style.display = 'none'; }}
-            />
-          ) : (
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11, fontStyle: 'italic' }}>
-              No img
-            </Typography>
-          );
-        }
+        if (f.type === 'image') return <ImageInput f={f} rf={rf} disabled={off} rowPath={rowPath} />;
         if (f.type === 'check')
           return <FormControlLabel label={f.label} control={<Checkbox checked={!!Number(rf.value)} disabled={off} onChange={(e) => rf.onChange(e.target.checked ? 1 : 0)} />} />;
         if (f.type === 'link') return f.master

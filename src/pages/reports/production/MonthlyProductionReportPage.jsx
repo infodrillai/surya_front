@@ -984,46 +984,54 @@ export default function MonthlyProductionReportPage() {
         </Box>
 
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-          <Tooltip title="Export Report to CSV">
-            <span>
-              <IconButton
-                onClick={handleExportCSV}
-                disabled={!filteredRows.length}
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={
+              <RefreshRounded
+                fontSize="small"
                 sx={{
-                  bgcolor: '#ffffff',
-                  border: '1px solid #dde5e3',
-                  '&:hover': { bgcolor: '#f3f6f5' },
+                  animation: isLoading ? 'spin 1s linear infinite' : 'none',
+                  '@keyframes spin': {
+                    '0%': { transform: 'rotate(0deg)' },
+                    '100%': { transform: 'rotate(360deg)' },
+                  },
                 }}
-              >
-                <DownloadRounded fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
+              />
+            }
+            onClick={handleRefreshAll}
+            disabled={isLoading}
+            sx={{
+              bgcolor: '#0284c7',
+              color: '#ffffff',
+              '&:hover': { bgcolor: '#0369a1' },
+              borderRadius: '8px',
+              textTransform: 'none',
+              boxShadow: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Refresh
+          </Button>
 
-          <Tooltip title="Refresh Data">
-            <span>
-              <IconButton
-                onClick={handleRefreshAll}
-                disabled={isLoading}
-                sx={{
-                  bgcolor: '#ffffff',
-                  border: '1px solid #dde5e3',
-                  '&:hover': { bgcolor: '#f3f6f5' },
-                }}
-              >
-                <RefreshRounded
-                  fontSize="small"
-                  sx={{
-                    animation: isLoading ? 'spin 1s linear infinite' : 'none',
-                    '@keyframes spin': {
-                      '0%': { transform: 'rotate(0deg)' },
-                      '100%': { transform: 'rotate(360deg)' },
-                    },
-                  }}
-                />
-              </IconButton>
-            </span>
-          </Tooltip>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<DownloadRounded fontSize="small" />}
+            onClick={handleExportCSV}
+            disabled={!filteredRows.length}
+            sx={{
+              bgcolor: '#16a34a',
+              color: '#ffffff',
+              '&:hover': { bgcolor: '#15803d' },
+              borderRadius: '8px',
+              textTransform: 'none',
+              boxShadow: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Export Excel
+          </Button>
         </Stack>
       </Stack>
 

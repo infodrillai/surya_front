@@ -15,9 +15,10 @@ import { palette } from '../theme';
 const WIDTH = 252;
 
 function Nav({ onNavigate }) {
-  const { hasRole, isAdmin, isSalesPerson } = useAuthStore();
+  const { hasRole, isAdmin, isSalesPerson, isStoreExecutive, isPuOperator, isBeltOperator, roles } = useAuthStore();
   const { pathname } = useLocation();
-  const activeMenu = getMenu(isAdmin, isSalesPerson);
+  const activeMenu = getMenu(isAdmin, isSalesPerson, roles);
+  const isRestrictedRole = isStoreExecutive || isPuOperator || isBeltOperator;
 
   const item = (to, label, Icon) => (
     <ListItemButton
@@ -48,7 +49,15 @@ function Nav({ onNavigate }) {
       <Box sx={{ px: 3, py: 2.5 }}>
         <Typography variant="h6" sx={{ lineHeight: 1.1 }}>CLS Surya</Typography>
         <Typography variant="caption" sx={{ color: '#88a7a2' }}>
-          {isSalesPerson && !isAdmin ? 'Sales Workspace' : 'Production and Sales ERP'}
+          {isStoreExecutive
+            ? 'Store Workspace'
+            : isPuOperator
+            ? 'PU Production'
+            : isBeltOperator
+            ? 'Belt Production'
+            : isSalesPerson && !isAdmin
+            ? 'Sales Workspace'
+            : 'Production and Sales ERP'}
         </Typography>
       </Box>
       <Box
@@ -63,11 +72,15 @@ function Nav({ onNavigate }) {
           msOverflowStyle: 'none',
         }}
       >
-        {!isSalesPerson || isAdmin ? (
+        {(!isSalesPerson && !isRestrictedRole) || isAdmin ? (
           <List dense disablePadding>{item('/', 'Dashboard', SpaceDashboardIcon)}</List>
         ) : null}
         {activeMenu.map((g) => {
-          const items = g.items.filter((i) => hasRole(i.roles));
+          const items = g.items.filter((i) => {
+            if (isSalesPerson) return true;
+            if (isRestrictedRole) return true;
+            return hasRole(i.roles);
+          });
           return items.length ? (
             <List
               key={g.section}
@@ -90,10 +103,16 @@ function Nav({ onNavigate }) {
 export default function Layout({ children }) {
   const wide = useMediaQuery((t) => t.breakpoints.up('md'));
   const { mobileNav, setMobileNav } = useUiStore();
-  const { fullName, user, logout, isAdmin, isSalesPerson, salesPerson } = useAuthStore();
+  const { fullName, user, logout, isAdmin, isSalesPerson, isStoreExecutive, isPuOperator, isBeltOperator, salesPerson } = useAuthStore();
   const sync = useSyncStore();
   const roleLabel = isAdmin
     ? 'Administrator'
+    : isStoreExecutive
+    ? 'Store Executive'
+    : isPuOperator
+    ? 'PU Operator'
+    : isBeltOperator
+    ? 'Belt Operator'
     : isSalesPerson
     ? `Sales Person${salesPerson?.employee_id ? ` · ${salesPerson.employee_id}` : ''}`
     : 'User';

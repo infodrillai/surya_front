@@ -56,7 +56,7 @@ const REPORT_TABS = [
   '2. Product-wise Production',
   '3. Material Consumption',
   '4. Roll Consumption',
-  '5. Rejection & Wastage',
+  '5. Rejection ',
   '6. Manufacturing Cost',
 ];
 
@@ -414,30 +414,47 @@ export default function BeltProductionReportPage() {
           <Button
             variant="outlined"
             size="small"
-            startIcon={<RefreshRoundedIcon />}
-            onClick={() => refetch()}
-            disabled={isFetching}
-            sx={{ borderRadius: '8px' }}
-          >
-            Refresh
-          </Button>
-          <Button
-            variant="outlined"
-            size="small"
             startIcon={<PrintRoundedIcon />}
             onClick={handlePrint}
-            sx={{ borderRadius: '8px' }}
+            sx={{ borderRadius: '8px', textTransform: 'none' }}
           >
             Print
           </Button>
           <Button
             variant="contained"
             size="small"
+            startIcon={<RefreshRoundedIcon sx={{ animation: isFetching ? 'spin 1s linear infinite' : 'none', '@keyframes spin': { '100%': { transform: 'rotate(360deg)' } } }} />}
+            onClick={() => refetch()}
+            disabled={isFetching}
+            sx={{
+              bgcolor: '#0284c7',
+              color: '#ffffff',
+              '&:hover': { bgcolor: '#0369a1' },
+              borderRadius: '8px',
+              textTransform: 'none',
+              boxShadow: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Refresh
+          </Button>
+          
+          <Button
+            variant="contained"
+            size="small"
             startIcon={<DownloadRoundedIcon />}
             onClick={exportCSV}
-            sx={{ bgcolor: '#0284c7', borderRadius: '8px', '&:hover': { bgcolor: '#0369a1' } }}
+            sx={{
+              bgcolor: '#16a34a',
+              color: '#ffffff',
+              borderRadius: '8px',
+              '&:hover': { bgcolor: '#15803d' },
+              textTransform: 'none',
+              boxShadow: 'none',
+              fontWeight: 600,
+            }}
           >
-            Export CSV
+            Export Excel
           </Button>
         </Stack>
       </Stack>
@@ -746,7 +763,6 @@ export default function BeltProductionReportPage() {
                     <TableCell align="right" sx={{ color: '#16a34a', fontWeight: 700 }}>Accepted</TableCell>
                     <TableCell align="right" sx={{ color: '#dc2626', fontWeight: 700 }}>Rejected</TableCell>
                     <TableCell align="right">Rej.%</TableCell>
-                    <TableCell align="right">Wast. Qty</TableCell>
                     <TableCell align="right">Rej. Loss</TableCell>
                     <TableCell align="center">Status</TableCell>
                   </>
@@ -841,14 +857,14 @@ export default function BeltProductionReportPage() {
                         <TableCell align="right">{fmtNum(p.stage2_qty, 3)}</TableCell>
                         <TableCell align="right">{fmtNum(p.stage3_qty, 3)}</TableCell>
                         <TableCell align="right">{fmtNum(p.stage4_qty, 3)}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 800, color: '#16a34a' }}>
+                        <TableCell align="right" sx={{ fontWeight: 700, color: '#16a34a' }}>
                           {fmtNum(p.total_accepted, 3)}
                         </TableCell>
                         <TableCell align="right" sx={{ color: p.total_rejected > 0 ? '#dc2626' : 'text.secondary' }}>
                           {fmtNum(p.total_rejected, 3)}
                         </TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 800 }}>{fmtMoney(p.total_cost, 2)}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 800, color: '#15803d' }}>
+                        <TableCell align="right" sx={{ fontWeight: 700 }}>{fmtMoney(p.total_cost, 2)}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, color: '#15803d' }}>
                           {fmtMoney(p.avg_unit_cost, 2)}
                         </TableCell>
                       </TableRow>
@@ -870,11 +886,11 @@ export default function BeltProductionReportPage() {
                             sx={{ height: 22, fontSize: 11 }}
                           />
                         </TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 800, color: '#0284c7' }}>
+                        <TableCell align="right">
                           {fmtNum(m.total_consumed, 3)}
                         </TableCell>
                         <TableCell align="right">{fmtMoney(m.avg_rate, 2)}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 800, color: '#0f172a' }}>
+                        <TableCell align="right" sx={{ fontWeight: 700, color: '#0f172a' }}>
                           {fmtMoney(m.total_cost, 2)}
                         </TableCell>
                         <TableCell align="center">
@@ -920,7 +936,7 @@ export default function BeltProductionReportPage() {
                         <TableCell align="right" sx={{ color: '#4338ca', fontWeight: 600 }}>
                           {fmtNum(b.roll_required, 3)} m
                         </TableCell>
-                        <TableCell align="right" sx={{ color: '#0284c7', fontWeight: 800 }}>
+                        <TableCell align="right" sx={{ color: '#0284c7', fontWeight: 700 }}>
                           {fmtNum(b.roll_consumed, 3)} m
                         </TableCell>
                         <TableCell align="right">{fmtNum(b.remaining_roll, 3)} m</TableCell>
@@ -928,7 +944,7 @@ export default function BeltProductionReportPage() {
                     ))
                   )}
 
-                  {/* TAB 4: Rejection & Wastage */}
+                  {/* TAB 4: Rejection  */}
                   {tab === 4 && (
                     filteredBatches.map((b, idx) => (
                       <TableRow
@@ -953,7 +969,6 @@ export default function BeltProductionReportPage() {
                           {fmtNum(b.rejected_quantity, 3)}
                         </TableCell>
                         <TableCell align="right">{fmtNum(b.rejection_percent, 2)}%</TableCell>
-                        <TableCell align="right">{fmtNum(b.wastage_qty, 3)}</TableCell>
                         <TableCell align="right">{fmtMoney(b.rejection_amount, 2)}</TableCell>
                         <TableCell align="center">
                           <Chip
@@ -989,8 +1004,8 @@ export default function BeltProductionReportPage() {
                         <TableCell align="right">{fmtMoney(b.carried_cost, 2)}</TableCell>
                         <TableCell align="right">{fmtMoney(b.added_cost, 2)}</TableCell>
                         <TableCell align="right">{fmtMoney(b.charge_total, 2)}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 800 }}>{fmtMoney(b.batch_total, 2)}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 800, color: '#15803d' }}>
+                        <TableCell align="right" sx={{ fontWeight: 700 }}>{fmtMoney(b.batch_total, 2)}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, color: '#15803d' }}>
                           {fmtMoney(b.unit_cost, 2)}
                         </TableCell>
                       </TableRow>
@@ -1026,6 +1041,7 @@ export default function BeltProductionReportPage() {
                   {tab === 0 && (
                     <>
                       <TableCell align="right"></TableCell>
+                      <TableCell align="center"></TableCell>
                       <TableCell align="right">{fmtNum(kpis.totalPlanned, 3)}</TableCell>
                       <TableCell align="right">{fmtNum(kpis.totalProduced, 3)}</TableCell>
                       <TableCell align="right" sx={{ color: '#16a34a' }}>{fmtNum(kpis.totalAccepted, 3)}</TableCell>
@@ -1050,10 +1066,11 @@ export default function BeltProductionReportPage() {
 
                   {tab === 2 && (
                     <>
+                    <TableCell align="center"></TableCell>
+                    <TableCell align="center"></TableCell>                    
                       <TableCell align="right" sx={{ color: '#0284c7' }}>
                         {fmtNum(materialConsumptionList.reduce((s, m) => s + m.total_consumed, 0), 3)}
-                      </TableCell>
-                      <TableCell align="right"></TableCell>
+                      </TableCell>                      
                       <TableCell align="right">
                         {fmtMoney(materialConsumptionList.reduce((s, m) => s + m.total_cost, 0), 2)}
                       </TableCell>
@@ -1063,31 +1080,33 @@ export default function BeltProductionReportPage() {
 
                   {tab === 3 && (
                     <>
+                    <TableCell align="center"></TableCell>
                       <TableCell align="right">{fmtNum(kpis.totalProduced, 3)}</TableCell>
                       <TableCell align="center"></TableCell>
-                      <TableCell align="center"></TableCell>
+                      <TableCell align="center"></TableCell>                      
                       <TableCell align="right" sx={{ color: '#4338ca' }}>{fmtNum(rollSummary.total_roll_required, 3)} m</TableCell>
                       <TableCell align="right" sx={{ color: '#0284c7' }}>{fmtNum(rollSummary.total_roll_consumed, 3)} m</TableCell>
-                      <TableCell align="right" sx={{ color: '#dc2626' }}>{fmtNum(rollSummary.total_roll_wastage, 3)} m</TableCell>
-                      <TableCell align="right">{fmtNum(rollSummary.available_roll_balance, 3)} m</TableCell>
+                      <TableCell align="center"></TableCell>
+                      
                     </>
                   )}
 
                   {tab === 4 && (
                     <>
+                    <TableCell align="center"></TableCell>
                       <TableCell align="right">{fmtNum(kpis.totalPlanned, 3)}</TableCell>
                       <TableCell align="right">{fmtNum(kpis.totalProduced, 3)}</TableCell>
                       <TableCell align="right" sx={{ color: '#16a34a' }}>{fmtNum(kpis.totalAccepted, 3)}</TableCell>
                       <TableCell align="right" sx={{ color: '#dc2626' }}>{fmtNum(kpis.totalRejected, 3)}</TableCell>
                       <TableCell align="right">{fmtNum(kpis.rejectionRate, 2)}%</TableCell>
-                      <TableCell align="right">{fmtNum(rollSummary.total_roll_wastage, 3)}</TableCell>
-                      <TableCell align="right">₹0.00</TableCell>
+                     <TableCell align="center"></TableCell>
                       <TableCell align="center"></TableCell>
                     </>
                   )}
 
                   {tab === 5 && (
                     <>
+                    <TableCell align="center"></TableCell>
                       <TableCell align="right" sx={{ color: '#16a34a' }}>{fmtNum(kpis.totalAccepted, 3)}</TableCell>
                       <TableCell align="right">{fmtMoney(reportData?.cost_summary?.total_carried_cost || 0, 2)}</TableCell>
                       <TableCell align="right">{fmtMoney(reportData?.cost_summary?.total_added_cost || 0, 2)}</TableCell>

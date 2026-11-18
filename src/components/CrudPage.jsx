@@ -48,19 +48,52 @@ const RECEIPT_STATUS_COLOR = {
   Cancelled: 'error',
 };
 
-function Cell({ col, row }) {
+function Cell({ col, row, productMap }) {
   const v = col.getValue ? col.getValue(row) : row[col.field];
+  if (col.field === 'product') {
+    return productMap?.[v] || productMap?.[row.product] || row.product_name || v || '';
+  }
   if (col.type === 'doc-status')
-    return <Chip size="small" color={row.is_completed ? 'success' : 'default'} label={row.is_completed ? 'Completed' : 'Draft'} />;
-  if (col.type === 'status') return <Chip size="small" color={STATUS_COLOR[v] || 'default'} variant={v === 'Pending Approval' ? 'outlined' : 'filled'} label={v} />;
-  if (col.type === 'dispatch-status') return <Chip size="small" color={DISPATCH_STATUS_COLOR[v] || 'default'} label={v || 'Draft'} />;
-  if (col.type === 'return-status') return <Chip size="small" color={RETURN_STATUS_COLOR[v] || 'default'} label={v || 'Draft'} />;
-  if (col.type === 'purchase-status') return <Chip size="small" color={PURCHASE_STATUS_COLOR[v] || (row.is_completed ? 'success' : 'default')} label={v || (row.is_completed ? 'Received' : 'Draft')} />;
-  if (col.type === 'receipt-status') return <Chip size="small" color={RECEIPT_STATUS_COLOR[v] || 'default'} label={v || 'Draft'} />;
+    return <Chip size="small" color={row.is_completed ? 'success' : 'default'} label={row.is_completed ? 'Completed' : 'Draft'} sx={{ fontSize: '0.75rem', height: 24 }} />;
+  if (col.type === 'status') return <Chip size="small" color={STATUS_COLOR[v] || 'default'} variant={v === 'Pending Approval' ? 'outlined' : 'filled'} label={v} sx={{ fontSize: '0.75rem', height: 24 }} />;
+  if (col.type === 'dispatch-status') return <Chip size="small" color={DISPATCH_STATUS_COLOR[v] || 'default'} label={v || 'Draft'} sx={{ fontSize: '0.75rem', height: 24 }} />;
+  if (col.type === 'return-status') return <Chip size="small" color={RETURN_STATUS_COLOR[v] || 'default'} label={v || 'Draft'} sx={{ fontSize: '0.75rem', height: 24 }} />;
+  if (col.type === 'purchase-status') return <Chip size="small" color={PURCHASE_STATUS_COLOR[v] || (row.is_completed ? 'success' : 'default')} label={v || (row.is_completed ? 'Received' : 'Draft')} sx={{ fontSize: '0.75rem', height: 24 }} />;
+  if (col.type === 'receipt-status') return <Chip size="small" color={RECEIPT_STATUS_COLOR[v] || 'default'} label={v || 'Draft'} sx={{ fontSize: '0.75rem', height: 24 }} />;
+  if (col.type === 'image') {
+    return (
+      <Box
+        sx={{
+          width: 40,
+          height: 40,
+          borderRadius: 1,
+          border: '1px solid #e2e8f0',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+          bgcolor: '#f8fafc',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+        }}
+      >
+        {v ? (
+          <Box
+            component="img"
+            src={v}
+            alt={col.label || ''}
+            sx={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          />
+        ) : (
+          <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.disabled' }}>—</Typography>
+        )}
+      </Box>
+    );
+  }
   if (col.type === 'currency') return row.currency ? `${row.currency} ${fmtNum(v, col.dp ?? 2)}` : fmtMoney(v, col.dp ?? 2);
   if (col.type === 'number') return fmtNum(v, col.dp ?? 3);
   if (col.type === 'date') return fmtDate(v);
-  if (col.type === 'flag') return v ? <Chip size="small" color="warning" label="Below cost" /> : null;
+  if (col.type === 'flag') return v ? <Chip size="small" color="warning" label="Below cost" sx={{ fontSize: '0.75rem', height: 24 }} /> : null;
   return v ?? '';
 }
 
@@ -77,13 +110,31 @@ export default function CrudPage({ config, embedded = false }) {
 
   const cached = useLiveQuery(() => (config.master ? db.table(config.doctype).toArray() : []), [config.doctype]);
   const server = useQuery({ queryKey: ['list', config.doctype], queryFn: () => getList(config.doctype), enabled: !config.master });
+  const productList = useLiveQuery(() => db.table('Product').toArray(), []) || [];
+  const productMap = useMemo(() => {
+    const m = {};
+    for (const p of productList) {
+      if (p.name) m[p.name] = p.product_name || p.name;
+      if (p.product_code) m[p.product_code] = p.product_name || p.name;
+    }
+    return m;
+  }, [productList]);
+
   const rows = useMemo(() => {
     let all = (config.master ? [...(cached || [])].sort((a, b) => String(b.modified).localeCompare(String(a.modified))) : server.data) || [];
     if (config.transformRows) all = config.transformRows(all);
     if (config.filterRows) all = all.filter(config.filterRows);
     const q = search.trim().toLowerCase();
-    return q ? all.filter((r) => config.columns.some((c) => String((c.getValue ? c.getValue(r) : r[c.field]) ?? '').toLowerCase().includes(q))) : all;
-  }, [cached, server.data, search, config]);
+    return q
+      ? all.filter((r) =>
+          config.columns.some((c) => {
+            let val = c.getValue ? c.getValue(r) : r[c.field];
+            if (c.field === 'product') val = productMap?.[val] || productMap?.[r.product] || r.product_name || val;
+            return String(val ?? '').toLowerCase().includes(q);
+          })
+        )
+      : all;
+  }, [cached, server.data, search, config, productMap]);
 
   const refresh = async () => {
     await qc.invalidateQueries();
@@ -154,26 +205,61 @@ export default function CrudPage({ config, embedded = false }) {
   }, [searchParams, config.doctype]);
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2.5, alignItems: { sm: 'center' }, justifyContent: 'space-between' }}>
+    <Box sx={{ p: { xs: 1.5, md: 2 }, width: '100%', boxSizing: 'border-box' }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 1.5, alignItems: { sm: 'center' }, justifyContent: 'space-between' }}>
         <Box>
-          {!embedded && <Typography variant="h5">{config.plural || `${config.title}s`}</Typography>}
-          {config.subtitle && !embedded && <Typography variant="body2" color="text.secondary">{config.subtitle}</Typography>}
+          {!embedded && <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{config.plural || `${config.title}s`}</Typography>}
+          {config.subtitle && !embedded && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{config.subtitle}</Typography>}
         </Box>
         <Stack direction="row" spacing={1.5}>
-          <TextField placeholder="Search" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} sx={{ width: 240, bgcolor: 'background.paper' }}
-            slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }} />
-          {!config.readOnlyList && <Button variant="contained" startIcon={<AddIcon />} onClick={() => setEditing(config.newDoc ? config.newDoc() : {})}>Add {config.title}</Button>}
+          <TextField
+            size="small"
+            placeholder="Search..."
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+            sx={{
+              width: 220,
+              borderRadius: '8px',
+              '& .MuiOutlinedInput-root': {
+                borderRadius: '8px',
+                bgcolor: 'background.paper',
+              },
+            }}
+            slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }}
+          />
+          {!config.readOnlyList && (
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => setEditing(config.newDoc ? config.newDoc() : {})}
+              sx={{ textTransform: 'none', fontWeight: 600, py: 0.5, borderRadius: '8px' }}
+            >
+              Add {config.title}
+            </Button>
+          )}
         </Stack>
       </Stack>
 
-      <Paper variant="outlined">
-        <TableContainer>
-          <Table size="medium">
+      <Paper variant="outlined" sx={{ borderRadius: 1.5, overflow: 'hidden' }}>
+        <TableContainer sx={{ width: '100%', overflowX: 'auto', scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' } }}>
+          <Table size="small" sx={{ width: '100%', '& .MuiTableCell-root': { py: 0.75, px: 1.25, fontSize: '0.88rem' } }}>
             <TableHead>
-              <TableRow>
-                {config.columns.map((c) => <TableCell key={c.field} align={['currency', 'number'].includes(c.type) ? 'right' : 'left'}>{c.label}</TableCell>)}
-                {!config.readOnlyList && <TableCell align="right">Actions</TableCell>}
+              <TableRow sx={{ bgcolor: 'action.hover' }}>
+                {config.columns.map((c) => (
+                  <TableCell
+                    key={c.field}
+                    align={['currency', 'number'].includes(c.type) ? 'right' : 'left'}
+                    sx={{ fontWeight: 700, fontSize: '0.82rem', whiteSpace: 'nowrap' }}
+                  >
+                    {c.label}
+                  </TableCell>
+                ))}
+                {!config.readOnlyList && (
+                  <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.82rem', whiteSpace: 'nowrap', minWidth: 160 }}>
+                    Actions
+                  </TableCell>
+                )}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -182,16 +268,25 @@ export default function CrudPage({ config, embedded = false }) {
                 return (
                   <TableRow key={row.name} hover>
                     {config.columns.map((c) => (
-                      <TableCell key={c.field} align={['currency', 'number'].includes(c.type) ? 'right' : 'left'}><Cell col={c} row={row} /></TableCell>
+                      <TableCell key={c.field} align={['currency', 'number'].includes(c.type) ? 'right' : 'left'} sx={{ whiteSpace: 'nowrap' }}><Cell col={c} row={row} productMap={productMap} /></TableCell>
                     ))}
                     {!config.readOnlyList && (
-                      <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                      <TableCell align="right" sx={{ whiteSpace: 'nowrap', py: 0.4 }}>
                         {(config.rowActions || []).filter((a) => a.show(row, isAdmin)).map((a) => (
                           <Button
                             key={a.key}
                             size="small"
                             variant={a.variant || 'text'}
-                            sx={{ mr: 0.5, ...(a.sx || {}) }}
+                            sx={{
+                              mr: 0.5,
+                              py: 0.2,
+                              px: 0.85,
+                              fontSize: '0.78rem',
+                              lineHeight: 1.3,
+                              textTransform: 'none',
+                              minWidth: 'unset',
+                              ...(a.sx || {}),
+                            }}
                             disabled={action.isPending}
                             onClick={() => action.mutate({ row, a })}
                           >
@@ -199,10 +294,16 @@ export default function CrudPage({ config, embedded = false }) {
                           </Button>
                         ))}
                         <Tooltip title={locked ? 'View' : 'Edit'}>
-                          <IconButton size="small" onClick={() => openRow(row)} aria-label={locked ? 'View' : 'Edit'}>{locked ? <VisibilityIcon fontSize="small" /> : <EditIcon fontSize="small" />}</IconButton>
+                          <IconButton size="small" sx={{ p: 0.35 }} onClick={() => openRow(row)} aria-label={locked ? 'View' : 'Edit'}>
+                            {locked ? <VisibilityIcon sx={{ fontSize: 20 }} /> : <EditIcon sx={{ fontSize: 20 }} />}
+                          </IconButton>
                         </Tooltip>
                         <Tooltip title={locked ? 'Locked' : 'Delete'}>
-                          <span><IconButton size="small" color="error" disabled={locked} onClick={() => setDeleting(row)} aria-label="Delete"><DeleteIcon fontSize="small" /></IconButton></span>
+                          <span>
+                            <IconButton size="small" sx={{ p: 0.35 }} color="error" disabled={locked} onClick={() => setDeleting(row)} aria-label="Delete">
+                              <DeleteIcon sx={{ fontSize: 20 }} />
+                            </IconButton>
+                          </span>
                         </Tooltip>
                       </TableCell>
                     )}
@@ -219,8 +320,16 @@ export default function CrudPage({ config, embedded = false }) {
             </TableBody>
           </Table>
         </TableContainer>
-        <TablePagination component="div" count={rows.length} page={page} rowsPerPage={perPage} rowsPerPageOptions={[10, 25, 50]}
-          onPageChange={(_, p) => setPage(p)} onRowsPerPageChange={(e) => { setPerPage(+e.target.value); setPage(0); }} />
+        <TablePagination
+          component="div"
+          count={rows.length}
+          page={page}
+          rowsPerPage={perPage}
+          rowsPerPageOptions={[10, 25, 50]}
+          onPageChange={(_, p) => setPage(p)}
+          onRowsPerPageChange={(e) => { setPerPage(+e.target.value); setPage(0); }}
+          sx={{ '& .MuiTablePagination-toolbar': { minHeight: 38, py: 0.25 } }}
+        />
       </Paper>
 
       {editing && <DocForm config={config} doc={editing.name ? editing : null} open onClose={() => setEditing(null)} />}
