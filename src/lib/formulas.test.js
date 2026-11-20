@@ -14,7 +14,7 @@ import {
   getBeltDivisionFactor,
   beltBatchCalc
 } from './formulas';
-import { beltStageCalc } from './beltBatchLogic';
+import { beltStageCalc } from '../pages/production/belt/beltBatchLogic';
 
 describe('Belt Manufacturing Formulas', () => {
   it('determines roll division factor based on width', () => {

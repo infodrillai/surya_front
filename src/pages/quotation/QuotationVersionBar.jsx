@@ -1,10 +1,10 @@
 import React from 'react';
-import { Alert, Button, Chip, Stack } from '@mui/material';
+import { Alert, Box, Button, Chip, Divider, Stack, Typography } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import PostAddIcon from '@mui/icons-material/PostAdd';
 import { useQueryClient } from '@tanstack/react-query';
-import { getList, runAction } from '../api/client';
+import { getList, runAction } from '../../api/client';
 
 /**
  * Opens a quotation by dispatching surya:open-doc.
@@ -17,7 +17,16 @@ export const openQuotation = (name) => {
   window.dispatchEvent(new CustomEvent('surya:open-doc', { detail: { doctype: 'Quotation', name } }));
 };
 
-export default function QuotationVersionBar({ doc }) {
+const formatDMY = (val) => {
+  if (!val) return 'Calculated when saved';
+  const parts = String(val).split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  }
+  return val;
+};
+
+export default function QuotationVersionBar({ doc, values }) {
   const qc = useQueryClient();
   const name = doc?.name;
   const [allList, setAllList] = React.useState([]);
@@ -25,8 +34,6 @@ export default function QuotationVersionBar({ doc }) {
   const [error, setError] = React.useState('');
 
   // Fetch or retrieve quotation list.
-  // Checks React Query's ['list', 'Quotation'] first (already loaded by CrudPage).
-  // Falls back to getList('Quotation') without requesting custom fields that might not exist in Frappe.
   React.useEffect(() => {
     let alive = true;
     (async () => {
@@ -45,7 +52,6 @@ export default function QuotationVersionBar({ doc }) {
         if (!alive) return;
 
         let items = Array.isArray(list) ? [...list] : [];
-        // Ensure the currently viewed doc is always present in the list
         if (doc?.name && !items.some((q) => q.name === doc.name)) {
           items.push({
             name: doc.name,
@@ -59,7 +65,6 @@ export default function QuotationVersionBar({ doc }) {
         }
 
         if (items.length > 0) {
-          // Natural sort by name (e.g. QTN-00001, QTN-00002, …) for stable prev/next order
           const sorted = [...items].sort((a, b) =>
             String(a.name || '').localeCompare(String(b.name || ''), undefined, {
               numeric: true,
@@ -131,10 +136,6 @@ export default function QuotationVersionBar({ doc }) {
   const familyPrev = famIdx > 0 ? family[famIdx - 1]?.name : null;
   const familyNext = (famIdx >= 0 && famIdx < family.length - 1) ? family[famIdx + 1]?.name : null;
 
-  // Resolve previous quotation:
-  // 1. Previous version in the revision family
-  // 2. Explicit doc.previous_version or doc.parent_quotation
-  // 3. Name-order neighbour in the general quotation list
   let prevQuotation = familyPrev;
   if (!prevQuotation && doc?.previous_version && doc.previous_version !== name) {
     prevQuotation = doc.previous_version;
@@ -147,17 +148,29 @@ export default function QuotationVersionBar({ doc }) {
   }
   if (prevQuotation === name) prevQuotation = null;
 
-  // Resolve next quotation:
-  // 1. Next revision in the version family
-  // 2. Direct revision child (revisionNext)
-  // 3. doc.superseded_by
-  // 4. Name-order neighbour in the general quotation list (listNext)
   let nextQuotation = familyNext || (revisionNext && revisionNext !== name ? revisionNext : null) || (supersededBy && supersededBy !== name ? supersededBy : null) || listNext;
   if (nextQuotation === name) nextQuotation = null;
 
   const isSuperseded = doc?.status === 'Superseded';
   const status = doc?.status;
   const canRevise = name && !familyNext && !revisionNext && !supersededBy && !['Superseded', 'Accepted'].includes(status);
+
+  // Check expiration
+  const expired = React.useMemo(() => {
+    if (!doc) return false;
+    if (['Accepted', 'Superseded'].includes(doc.status)) return false;
+    if (doc.status === 'Disapproved') return true;
+    let validUntil = doc.valid_until || values?.valid_until;
+    if (!validUntil && doc.quotation_date) {
+      const days = Number(doc.validity_days) > 0 ? Number(doc.validity_days) : 15;
+      const d = new Date(doc.quotation_date);
+      d.setDate(d.getDate() + days);
+      validUntil = !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : '';
+    }
+    if (!validUntil) return false;
+    const today = new Date().toISOString().split('T')[0];
+    return String(validUntil) < today;
+  }, [doc, values]);
 
   const revise = async () => {
     if (!window.confirm(`Create a new version from ${name}? The original version will remain read-only.`)) return;
@@ -174,30 +187,93 @@ export default function QuotationVersionBar({ doc }) {
   };
 
   return (
-    <Stack spacing={1} sx={{ mb: 1, pb: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
-      <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center" justifyContent="space-between" useFlexGap>
-        {/* Left: version chip + status + revise button */}
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+    <Box sx={{ width: '100%' }}>
+      <Stack
+        direction="row"
+        spacing={1.5}
+        flexWrap="wrap"
+        alignItems="center"
+        justifyContent="space-between"
+        useFlexGap
+      >
+        {/* Left: Version badge + Revise button + Metadata */}
+        <Stack direction="row" spacing={1.25} alignItems="center" flexWrap="wrap" useFlexGap>
           {name && (
-            <Chip size="small" color="info" variant="outlined" label={`Version ${doc?.version || 1}`} sx={{ fontWeight: 600 }} />
-         )}
-          
+            <Chip
+              size="small"
+              color="info"
+              variant="outlined"
+              label={`Version ${doc?.version || 1}`}
+              sx={{ fontWeight: 700, borderRadius: '6px', height: 26, fontSize: '0.75rem', bgcolor: '#f0f9ff' }}
+            />
+          )}
+
           {canRevise && (
-            <Button size="small" variant="contained" startIcon={<PostAddIcon />} disabled={busy} onClick={revise} sx={{ textTransform: 'none' }}>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<PostAddIcon sx={{ fontSize: 16 }} />}
+              disabled={busy}
+              onClick={revise}
+              sx={{
+                bgcolor: '#0f766e',
+                '&:hover': { bgcolor: '#115e59' },
+                textTransform: 'none',
+                borderRadius: '7px',
+                fontWeight: 600,
+                height: 28,
+                fontSize: '0.78rem',
+                boxShadow: 'none',
+              }}
+            >
               Revise Quotation
             </Button>
           )}
+
+          <Divider orientation="vertical" flexItem sx={{ my: 0.5, borderColor: '#e2e8f0', display: { xs: 'none', sm: 'block' } }} />
+
+          {/* Key Metadata */}
+          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>
+              <span style={{ fontWeight: 600, color: '#334155' }}>Created by:</span> {doc?.created_by_name || doc?.owner || 'Current user'}
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>
+              ·
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>
+              <span style={{ fontWeight: 600, color: '#334155' }}>Currency:</span> {values?.currency || doc?.currency || 'INR'}
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>
+              ·
+            </Typography>
+            <Typography variant="caption" sx={{ color: expired ? 'error.main' : 'text.secondary', fontSize: '0.78rem', fontWeight: expired ? 600 : 400 }}>
+              <span style={{ fontWeight: 600, color: '#334155' }}>Valid until:</span> {formatDMY(doc?.valid_until || values?.valid_until)}
+              {expired && (
+                <Chip size="small" label="Expired" color="error" sx={{ height: 18, fontSize: 10, fontWeight: 700, ml: 0.75 }} />
+              )}
+            </Typography>
+          </Stack>
         </Stack>
 
-        {/* Right: Prev / Next navigation */}
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: 'auto' }}>
+        {/* Right: Prev / Next Navigation */}
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: { xs: 0, sm: 'auto' } }}>
           <Button
             size="small"
             variant="outlined"
-            startIcon={<ArrowBackIcon />}
+            startIcon={<ArrowBackIcon sx={{ fontSize: 15 }} />}
             disabled={!prevQuotation}
             onClick={() => prevQuotation && openQuotation(prevQuotation)}
-            sx={{ textTransform: 'none', fontWeight: 600 }}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 600,
+              borderRadius: '7px',
+              height: 28,
+              fontSize: '0.75rem',
+              color: '#475569',
+              borderColor: '#cbd5e1',
+              bgcolor: '#ffffff',
+              '&:hover': { bgcolor: '#f8fafc', borderColor: '#94a3b8' },
+            }}
           >
             Previous Quotation
           </Button>
@@ -205,19 +281,29 @@ export default function QuotationVersionBar({ doc }) {
             size="small"
             variant={isSuperseded && nextQuotation ? 'contained' : 'outlined'}
             color={isSuperseded && nextQuotation ? 'primary' : 'inherit'}
-            endIcon={<ArrowForwardIcon />}
+            endIcon={<ArrowForwardIcon sx={{ fontSize: 15 }} />}
             disabled={!nextQuotation}
             onClick={() => nextQuotation && openQuotation(nextQuotation)}
-            sx={{ textTransform: 'none', fontWeight: 600 }}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 600,
+              borderRadius: '7px',
+              height: 28,
+              fontSize: '0.75rem',
+              color: isSuperseded && nextQuotation ? '#ffffff' : '#475569',
+              borderColor: '#cbd5e1',
+              bgcolor: isSuperseded && nextQuotation ? undefined : '#ffffff',
+              '&:hover': { borderColor: '#94a3b8' },
+            }}
           >
             {isSuperseded && (familyNext || revisionNext)
-              ? `Next Quotation (${familyNext || revisionNext})`
+              ? `Next (${familyNext || revisionNext})`
               : 'Next Quotation'}
           </Button>
         </Stack>
       </Stack>
 
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-    </Stack>
+      {error && <Alert severity="error" onClose={() => setError('')} sx={{ mt: 1 }}>{error}</Alert>}
+    </Box>
   );
 }

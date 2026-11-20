@@ -1,3 +1,4 @@
+import ReportChart from '../../../components/ReportChart';
 import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -306,33 +307,6 @@ export default function CustomerOutstandingPage() {
         </Box>
 
         <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
-          {/* Company Selector */}
-          <TextField
-            select
-            size="small"
-            value={selectedCompany}
-            onChange={(e) => {
-              setSelectedCompany(e.target.value);
-              setPage(0);
-            }}
-            sx={{
-              minWidth: 200,
-              bgcolor: 'rgba(255,255,255,0.12)',
-              borderRadius: 2,
-              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.2)' },
-              '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.4)' },
-              '& .MuiSelect-select': { color: '#ffffff', py: 0.9, fontWeight: 500 },
-              '& .MuiSvgIcon-root': { color: '#ffffff' },
-            }}
-          >
-            <MenuItem value="__ALL__">All Companies ({dashboardData.companies?.length || 0})</MenuItem>
-            {(dashboardData.companies || []).map((comp) => (
-              <MenuItem key={comp} value={comp}>
-                {comp}
-              </MenuItem>
-            ))}
-          </TextField>
-
           {/* Sync with Tally Button */}
           <Button
             variant="contained"
@@ -408,6 +382,17 @@ export default function CustomerOutstandingPage() {
           </Button>
         </Stack>
       </Paper>
+
+      <Box sx={{ mb: 2.5 }}>
+        <ReportChart
+          title="Outstanding balance by ageing bucket"
+          points={AGEING_BUCKETS.map(({ key, label }) => ({
+            label,
+            value: filteredCustomers.reduce((total, customer) => total + (Number(customer[key]) || 0), 0),
+          }))}
+          format={fmtMoney}
+        />
+      </Box>
 
       {/* KPI Cards */}
       <Grid container spacing={2.5} sx={{ mb: 3 }}>
@@ -684,6 +669,27 @@ export default function CustomerOutstandingPage() {
         {/* Controls Toolbar */}
         <Box sx={{ p: 2.5, borderBottom: `1px solid ${palette.line}`, bgcolor: '#ffffff' }}>
           <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField
+                select
+                size="small"
+                label="Company"
+                value={selectedCompany}
+                onChange={(e) => {
+                  setSelectedCompany(e.target.value);
+                  setPage(0);
+                }}
+                fullWidth
+              >
+                <MenuItem value="__ALL__">All Companies ({dashboardData.companies?.length || 0})</MenuItem>
+                {(dashboardData.companies || []).map((comp) => (
+                  <MenuItem key={comp} value={comp}>
+                    {comp}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+            </Grid>
             {/* Search */}
             <Grid item xs={12} sm={6} md={4}>
               <TextField

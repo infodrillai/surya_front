@@ -1,3 +1,4 @@
+import SuryaBrandMark, { companyName } from '../../components/SuryaBrandMark';
 import { Alert, Box, Button, Chip, Divider, Paper, Stack, TextField, Typography } from '@mui/material';
 import { useState } from 'react';
 import { useAuthStore } from '../../stores/authStore';
@@ -26,7 +27,10 @@ export default function Login() {
   return (
     <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', bgcolor: palette.ink, p: 2 }}>
       <Paper component="form" onSubmit={submit} sx={{ p: 4, width: 420, maxWidth: '100%' }}>
-        <Typography variant="h5" sx={{ fontWeight: 700 }}>CLS Surya</Typography>
+        <Stack direction="row" alignItems="center" gap={1.25} sx={{ mb: 0.75 }}>
+          <SuryaBrandMark size={42} />
+          <Typography component="h1" variant="h5" sx={{ fontWeight: 700 }}>{companyName}</Typography>
+        </Stack>
         <Typography color="text.secondary" sx={{ mb: 2.5, fontSize: 14 }}>Sign in to manage production and sales.</Typography>
 
         {/* <Stack spacing={1.5} sx={{ mb: 2.5, bgcolor: '#f4f6f8', p: 1.5, borderRadius: 2 }}>

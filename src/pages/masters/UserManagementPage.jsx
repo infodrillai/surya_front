@@ -9,7 +9,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
   FormControl,
   IconButton,
   InputLabel,
@@ -216,9 +215,11 @@ export default function UserManagementPage() {
         </Box>
         <Stack direction="row" spacing={1.5}>
           <Tooltip title="Refresh">
-            <IconButton onClick={() => refetch()} disabled={isFetching} sx={{ border: '1px solid #dde5e3' }}>
-              <RefreshIcon fontSize="small" />
-            </IconButton>
+            <span>
+              <IconButton aria-label="Refresh" onClick={() => refetch()} disabled={isFetching} sx={{ border: '1px solid #dde5e3' }}>
+                <RefreshIcon fontSize="small" />
+              </IconButton>
+            </span>
           </Tooltip>
           <Button
             variant="contained"
@@ -366,14 +367,17 @@ export default function UserManagementPage() {
                         </Button>
                         {u.name !== 'Administrator' && u.name !== 'surya@gmail.com' && (
                           <Tooltip title="Delete User">
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => handleDelete(u)}
-                              disabled={deleteUserMutation.isPending}
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
+                            <span>
+                              <IconButton
+                                aria-label="Delete User"
+                                size="small"
+                                color="error"
+                                onClick={() => handleDelete(u)}
+                                disabled={deleteUserMutation.isPending}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </span>
                           </Tooltip>
                         )}
                       </Stack>

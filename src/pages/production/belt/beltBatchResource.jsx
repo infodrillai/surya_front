@@ -1,8 +1,8 @@
 import React from 'react';
 import { Box, Button, Chip } from '@mui/material';
-import { call, runAction, getDoc, updateDoc } from '../api/client';
-import { db } from '../db/dexie';
-import { todayISO } from '../lib/format';
+import { call, runAction, getDoc, updateDoc } from '../../../api/client';
+import { db } from '../../../db/dexie';
+import { todayISO } from '../../../lib/format';
 import {
   beltBatchCalc,
   beltStageCalc,
@@ -11,7 +11,7 @@ import {
   BELT_TYPES,
   BELT_PROCESSES,
   BELT_STAGE_LABELS,
-} from '../lib/beltBatchLogic';
+} from './beltBatchLogic';
 
 const t = (name, label, x = {}) => ({ name, label, type: 'text', ...x });
 const num = (name, label, x = {}) => ({ name, label, type: 'number', ...x });

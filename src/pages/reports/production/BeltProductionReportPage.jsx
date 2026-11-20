@@ -1,3 +1,4 @@
+import ReportChart, { groupChartRows } from '../../../components/ReportChart';
 import React, { useState, useMemo } from 'react';
 import {
   Alert,
@@ -46,10 +47,16 @@ import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlineRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { useQuery } from '@tanstack/react-query';
 import { call, getList } from '../../../api/client';
 import { fmtDate, fmtMoney, fmtNum } from '../../../lib/format';
+import {
+  ProductionReportHeader, ProductionReportMetric, ProductionReportMetrics,
+  reportExportSx, reportFiltersSx, reportHeadingRowSx, reportPageSx, reportTableHeight, reportTableSx,
+} from './ProductionReportLayout';
+
 
 const REPORT_TABS = [
   '1. Date-wise Production',
@@ -392,160 +399,118 @@ export default function BeltProductionReportPage() {
   };
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1600, mx: 'auto' }}>
-      {/* Title & Toolbar */}
-      <Stack
-        direction={{ xs: 'column', sm: 'row' }}
-        spacing={2}
-        justifyContent="space-between"
-        alignItems={{ sm: 'center' }}
-        sx={{ mb: 2.5 }}
+    <Box sx={reportPageSx}>
+      <ProductionReportHeader
+        title="Belt Manufacturing Reports"
+        description="Process-wise analysis, roll consumption tracking, raw material utilization, rejection breakdown, and manufacturing cost audit."
       >
-        <Box>
-          <Typography variant="h5" sx={{ fontWeight: 700, color: '#0f172a', letterSpacing: -0.3 }}>
-            Belt Manufacturing Reports
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
-            Process-wise analysis, roll consumption tracking, raw material utilization, rejection breakdown, and manufacturing cost audit.
-          </Typography>
-        </Box>
+        <Button variant="outlined" size="small" startIcon={<PrintRoundedIcon />} onClick={handlePrint}>
+          Print
+        </Button>
+        <Button
+          variant="contained"
+          size="small"
+          startIcon={<RefreshRoundedIcon sx={{ animation: isFetching ? 'spin 1s linear infinite' : 'none', '@keyframes spin': { '100%': { transform: 'rotate(360deg)' } } }} />}
+          onClick={() => refetch()}
+          disabled={isFetching}
+        >
+          Refresh
+        </Button>
+        <Button variant="contained" size="small" startIcon={<DownloadRoundedIcon />} onClick={exportCSV} sx={reportExportSx}>
+          Export Excel
+        </Button>
+      </ProductionReportHeader>
 
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<PrintRoundedIcon />}
-            onClick={handlePrint}
-            sx={{ borderRadius: '8px', textTransform: 'none' }}
-          >
-            Print
-          </Button>
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<RefreshRoundedIcon sx={{ animation: isFetching ? 'spin 1s linear infinite' : 'none', '@keyframes spin': { '100%': { transform: 'rotate(360deg)' } } }} />}
-            onClick={() => refetch()}
-            disabled={isFetching}
-            sx={{
-              bgcolor: '#0284c7',
-              color: '#ffffff',
-              '&:hover': { bgcolor: '#0369a1' },
-              borderRadius: '8px',
-              textTransform: 'none',
-              boxShadow: 'none',
-              fontWeight: 600,
-            }}
-          >
-            Refresh
-          </Button>
-          
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<DownloadRoundedIcon />}
-            onClick={exportCSV}
-            sx={{
-              bgcolor: '#16a34a',
-              color: '#ffffff',
-              borderRadius: '8px',
-              '&:hover': { bgcolor: '#15803d' },
-              textTransform: 'none',
-              boxShadow: 'none',
-              fontWeight: 600,
-            }}
-          >
-            Export Excel
-          </Button>
-        </Stack>
-      </Stack>
-
-      {/* KPI Cards */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(3, 1fr)', md: 'repeat(6, 1fr)' },
-          gap: 1.5,
-          mb: 3,
-        }}
-      >
-        <Paper variant="outlined" sx={{ p: 2, borderRadius: '12px', bgcolor: '#ffffff' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, textTransform: 'uppercase' }}>
-            Total Accepted Output
-          </Typography>
-          <Typography variant="h5" sx={{ fontWeight: 800, color: '#16a34a', mt: 0.5 }}>
-            {fmtNum(kpis.totalAccepted, 3)}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {kpis.totalBatches} batches
-          </Typography>
-        </Paper>
-
-        <Paper variant="outlined" sx={{ p: 2, borderRadius: '12px', bgcolor: '#ffffff' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, textTransform: 'uppercase' }}>
-            Roll Consumed
-          </Typography>
-          <Typography variant="h5" sx={{ fontWeight: 800, color: '#0284c7', mt: 0.5 }}>
-            {fmtNum(kpis.totalRollConsumed, 3)} m
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            In sizing operations
-          </Typography>
-        </Paper>
-
-        <Paper variant="outlined" sx={{ p: 2, borderRadius: '12px', bgcolor: '#ffffff' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, textTransform: 'uppercase' }}>
-            Roll Balance
-          </Typography>
-          <Typography variant="h5" sx={{ fontWeight: 800, color: '#0f766e', mt: 0.5 }}>
-            {fmtNum(kpis.availableRollBalance, 3)} m
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            From {fmtNum(kpis.totalRollProduced, 0)}m produced
-          </Typography>
-        </Paper>
-
-        <Paper variant="outlined" sx={{ p: 2, borderRadius: '12px', bgcolor: '#ffffff' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, textTransform: 'uppercase' }}>
-            Rejection & Wastage
-          </Typography>
-          <Typography variant="h5" sx={{ fontWeight: 800, color: kpis.totalRejected > 0 ? '#dc2626' : '#64748b', mt: 0.5 }}>
-            {fmtNum(kpis.totalRejected, 3)}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Rate: {fmtNum(kpis.rejectionRate, 2)}% | Waste: {fmtNum(kpis.totalRollWastage, 2)}m
-          </Typography>
-        </Paper>
-
-        <Paper variant="outlined" sx={{ p: 2, borderRadius: '12px', bgcolor: '#ffffff' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, textTransform: 'uppercase' }}>
-            Total Production Cost
-          </Typography>
-          <Typography variant="h5" sx={{ fontWeight: 800, color: '#0f172a', mt: 0.5 }}>
-            {fmtMoney(kpis.totalCost, 2)}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Material + Charges
-          </Typography>
-        </Paper>
-
-        <Paper variant="outlined" sx={{ p: 2, borderRadius: '12px', bgcolor: '#f0fdf4', borderColor: '#bbf7d0' }}>
-          <Typography variant="caption" sx={{ fontWeight: 700, color: '#15803d', textTransform: 'uppercase' }}>
-            Avg Cost / Accepted Unit
-          </Typography>
-          <Typography variant="h5" sx={{ fontWeight: 800, color: '#15803d', mt: 0.5 }}>
-            {fmtMoney(kpis.avgUnitCost, 2)}
-          </Typography>
-          <Typography variant="caption" sx={{ color: '#16a34a' }}>
-            Weighted net average
-          </Typography>
-        </Paper>
+      <Box sx={{ mb: 2.5 }}>
+        <ReportChart title="Belt batches by stage" points={groupChartRows(filteredBatches, (row) => row.stage_name)} />
       </Box>
 
-      {/* Filter Bar */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 2.5, borderRadius: '12px', bgcolor: '#ffffff' }}>
-        <Stack spacing={1.5}>
+      <ProductionReportMetrics>
+        <ProductionReportMetric title="Total Accepted Output" value={fmtNum(kpis.totalAccepted, 3)} caption={`${kpis.totalBatches} batches`} color="success.main" />
+        <ProductionReportMetric title="Roll Consumed" value={`${fmtNum(kpis.totalRollConsumed, 3)} m`} caption="In sizing operations" color="info.main" />
+        <ProductionReportMetric title="Roll Balance" value={`${fmtNum(kpis.availableRollBalance, 3)} m`} caption={`From ${fmtNum(kpis.totalRollProduced, 0)}m produced`} color="#0f766e" />
+        <ProductionReportMetric title="Rejection & Wastage" value={fmtNum(kpis.totalRejected, 3)} caption={`Rate: ${fmtNum(kpis.rejectionRate, 2)}% | Waste: ${fmtNum(kpis.totalRollWastage, 2)}m`} color={kpis.totalRejected > 0 ? 'error.main' : 'text.secondary'} />
+        <ProductionReportMetric title="Total Production Cost" value={fmtMoney(kpis.totalCost, 2)} caption="Material + Charges" />
+        <ProductionReportMetric title="Avg Cost / Accepted Unit" value={fmtMoney(kpis.avgUnitCost, 2)} caption="Weighted net average" color="success.main" highlighted />
+      </ProductionReportMetrics>
+
+      {/* Filter Bar - Single Line */}
+      <Paper variant="outlined" sx={reportFiltersSx}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={1}
+          useFlexGap
+          sx={{
+            width: '100%',
+            flexWrap: 'wrap',
+            '& > *': { maxWidth: '100%' },
+          }}
+        >
+          {/* Quick Search */}
+          <TextField
+            placeholder="Quick search batch or product…"
+            size="small"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchRoundedIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                </InputAdornment>
+              ),
+              endAdornment: searchQuery ? (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setSearchQuery('')}>
+                    <CloseRoundedIcon fontSize="small" />
+                  </IconButton>
+                </InputAdornment>
+              ) : null,
+            }}
+            sx={{ flex: '1.4 1 180px', minWidth: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* From Date */}
+          <TextField
+            label="From Date"
+            type="date"
+            size="small"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            sx={{ flex: '0 0 auto', width: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* To Date */}
+          <TextField
+            label="To Date"
+            type="date"
+            size="small"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            sx={{ flex: '0 0 auto', width: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* Filter Belt Product */}
+          <FormControl size="small" sx={{ flex: '1.2 1 160px', minWidth: 130, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
+            <InputLabel>Filter Belt Product</InputLabel>
+            <Select
+              value={selectedProduct}
+              label="Filter Belt Product"
+              onChange={(e) => setSelectedProduct(e.target.value)}
+            >
+              <MenuItem value="">All Belt Products</MenuItem>
+              {uniqueProducts.map((p) => (
+                <MenuItem key={p} value={p}>
+                  {p}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
           {/* Quick Date Presets */}
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flex: '0 0 auto' }}>
             <Chip
               label="This Month"
               size="small"
@@ -556,7 +521,7 @@ export default function BeltProductionReportPage() {
                 setFromDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`);
                 setToDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(end.getDate())}`);
               }}
-              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 600, height: 30 }}
             />
             <Chip
               label="Last 3 Months"
@@ -568,85 +533,37 @@ export default function BeltProductionReportPage() {
                 setFromDate(`${past.getFullYear()}-${pad(past.getMonth() + 1)}-01`);
                 setToDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
               }}
-              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
-            />
-            <Chip
-              label="All Records"
-              size="small"
-              onClick={() => {
-                setFromDate('');
-                setToDate('');
-              }}
-              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 600, height: 30 }}
             />
           </Stack>
 
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center">
-            <TextField
-              label="From Date"
-              type="date"
-              size="small"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: { xs: '100%', md: 170 } }}
-            />
-            <TextField
-              label="To Date"
-              type="date"
-              size="small"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ width: { xs: '100%', md: 170 } }}
-            />
-            <FormControl size="small" sx={{ minWidth: 240, width: { xs: '100%', md: 'auto' } }}>
-              <InputLabel>Filter Belt Product</InputLabel>
-              <Select
-                value={selectedProduct}
-                label="Filter Belt Product"
-                onChange={(e) => setSelectedProduct(e.target.value)}
-              >
-                <MenuItem value="">All Belt Products</MenuItem>
-                {uniqueProducts.map((p) => (
-                  <MenuItem key={p} value={p}>
-                    {p}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <TextField
-              placeholder="Search batch or product…"
-              size="small"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              sx={{ flex: 1, width: { xs: '100%', md: 'auto' } }}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchRoundedIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-                  </InputAdornment>
-                ),
-              }}
-            />
-
-            {(fromDate || toDate || selectedProduct || searchQuery) && (
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={() => {
-                  setFromDate('');
-                  setToDate('');
-                  setSelectedProduct('');
-                  setSearchQuery('');
-                }}
-                sx={{ borderRadius: '8px' }}
-              >
-                Reset
-              </Button>
-            )}
-          </Stack>
+          {/* Clear Filters */}
+          <Button
+            size="small"
+            variant="outlined"
+            color="inherit"
+            startIcon={<RestartAltRoundedIcon fontSize="small" />}
+            onClick={() => {
+              setFromDate('');
+              setToDate('');
+              setSelectedProduct('');
+              setSearchQuery('');
+            }}
+            sx={{
+              flex: '0 0 auto',
+              minWidth: 110,
+              height: 38,
+              textTransform: 'none',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              borderRadius: '8px',
+              color: 'text.secondary',
+              borderColor: '#cbd5e1',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Clear Filters
+          </Button>
         </Stack>
       </Paper>
 
@@ -672,21 +589,11 @@ export default function BeltProductionReportPage() {
       </Tabs>
 
       {/* Report Content Table */}
-      <Paper variant="outlined" sx={{ borderRadius: '12px', overflow: 'hidden', bgcolor: '#ffffff' }}>
-        <TableContainer sx={{ maxHeight: 650 }}>
+      <Paper variant="outlined" sx={reportTableSx}>
+        <TableContainer sx={{ maxHeight: reportTableHeight }}>
           <Table size="small" stickyHeader>
             <TableHead sx={{ bgcolor: '#f8fafc' }}>
-              <TableRow
-                sx={{
-                  '& th': {
-                    bgcolor: '#f8fafc',
-                    fontWeight: 700,
-                    color: '#475569',
-                    fontSize: '0.75rem',
-                    py: 1.25,
-                  },
-                }}
-              >
+              <TableRow sx={reportHeadingRowSx}>
                 <TableCell sx={{ width: 40 }}>#</TableCell>
 
                 {/* 1. Date-wise Production */}

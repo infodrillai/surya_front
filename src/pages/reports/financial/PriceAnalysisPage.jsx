@@ -1,3 +1,4 @@
+import ReportChart, { groupChartRows } from '../../../components/ReportChart';
 import React, { useMemo, useState } from 'react';
 import {
   Box,
@@ -7,6 +8,7 @@ import {
   FormControl,
   IconButton,
   InputAdornment,
+  InputLabel,
   MenuItem,
   Paper,
   Select,
@@ -390,38 +392,6 @@ export default function PriceAnalysisPage() {
         </Box>
 
         <Stack direction="row" spacing={1.5} alignItems="center">
-          {/* Report Type Selector */}
-          <ToggleButtonGroup
-            value={reportType}
-            exclusive
-            onChange={handleReportTypeChange}
-            size="small"
-            sx={{
-              bgcolor: '#ffffff',
-              borderRadius: '8px',
-              '& .MuiToggleButton-root': {
-                textTransform: 'none',
-                fontWeight: 600,
-                px: 2,
-                fontSize: '0.82rem',
-                '&.Mui-selected': {
-                  bgcolor: palette.teal,
-                  color: '#ffffff',
-                  '&:hover': { bgcolor: '#1e5956ff' },
-                },
-              },
-            }}
-          >
-            <ToggleButton value="purchase">
-              <ShoppingCartOutlined sx={{ fontSize: 18, mr: 1 }} />
-              Purchase Wise
-            </ToggleButton>
-            <ToggleButton value="selling">
-              <StorefrontOutlined sx={{ fontSize: 18, mr: 1 }} />
-              Selling Wise
-            </ToggleButton>
-          </ToggleButtonGroup>
-
           <Button
             variant="contained"
             size="small"
@@ -471,255 +441,17 @@ export default function PriceAnalysisPage() {
         </Stack>
       </Stack>
 
-      {/* Filter Section */}
-      <Paper variant="outlined" sx={{ p: 2.5, borderRadius: '12px', mb: 3, bgcolor: '#ffffff' }}>
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-          <FilterListRounded sx={{ color: palette.teal, fontSize: 20 }} />
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#0f172a' }}>
-            {isPurchase ? 'Purchase Wise Filters' : 'Selling Wise Filters'}
-          </Typography>
-          <Box sx={{ flexGrow: 1 }} />
-          <Button
-            size="small"
-            startIcon={<RestartAltRounded />}
-            onClick={handleResetFilters}
-            sx={{ textTransform: 'none', fontSize: '0.78rem', color: 'text.secondary' }}
-          >
-            Reset All
-          </Button>
-        </Stack>
-
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: {
-              xs: '1fr',
-              sm: 'repeat(2, 1fr)',
-              md: 'repeat(3, 1fr)',
-              lg: 'repeat(4, 1fr)',
-            },
-            gap: 2,
-          }}
-        >
-          {/* Common 1: From Date */}
-          <Box>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5, display: 'block' }}>
-              From Date
-            </Typography>
-            <TextField
-              type="date"
-              size="small"
-              fullWidth
-              value={fromDate}
-              onChange={(e) => {
-                setFromDate(e.target.value);
-                setPage(0);
-              }}
-              slotProps={{ inputLabel: { shrink: true } }}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-            />
-          </Box>
-
-          {/* Common 2: To Date */}
-          <Box>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5, display: 'block' }}>
-              To Date
-            </Typography>
-            <TextField
-              type="date"
-              size="small"
-              fullWidth
-              value={toDate}
-              onChange={(e) => {
-                setToDate(e.target.value);
-                setPage(0);
-              }}
-              slotProps={{ inputLabel: { shrink: true } }}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-            />
-          </Box>
-
-          {/* Common 3: Product Name */}
-          <Box>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5, display: 'block' }}>
-              Product Name
-            </Typography>
-            <TextField
-              size="small"
-              fullWidth
-              placeholder="Search product..."
-              value={productNameFilter}
-              onChange={(e) => {
-                setProductNameFilter(e.target.value);
-                setPage(0);
-              }}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-            />
-          </Box>
-
-          
-
-
-          
-
-          {/* Purchase Wise Additional Filter: Vendor */}
-          {isPurchase && (
-            <FormControl size="small" fullWidth>
-              <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
-                Vendor
-              </Typography>
-              <Select
-                value={vendorFilter}
-                onChange={(e) => {
-                  setVendorFilter(e.target.value);
-                  setPage(0);
-                }}
-                displayEmpty
-                sx={{ borderRadius: '8px' }}
-              >
-                {vendorOptions.map((v) => (
-                  <MenuItem key={v.value} value={v.value}>
-                    {v.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-
-        
-          {/* Selling Wise Additional Filter: Customer */}
-          {!isPurchase && (
-            <FormControl size="small" fullWidth>
-              <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
-                Customer
-              </Typography>
-              <Select
-                value={customerFilter}
-                onChange={(e) => {
-                  setCustomerFilter(e.target.value);
-                  setPage(0);
-                }}
-                displayEmpty
-                sx={{ borderRadius: '8px' }}
-              >
-                {customerOptions.map((c) => (
-                  <MenuItem key={c.value} value={c.value}>
-                    {c.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-
-          {/* Selling Wise Additional Filter: Sales Order Number */}
-          {!isPurchase && (
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5, display: 'block' }}>
-                Sales Order Number
-              </Typography>
-              <TextField
-                size="small"
-                fullWidth
-                placeholder="e.g. SO-00112"
-                value={salesOrderFilter}
-                onChange={(e) => {
-                  setSalesOrderFilter(e.target.value);
-                  setPage(0);
-                }}
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-              />
-            </Box>
-          )}
-
-          {/* Selling Wise Additional Filter: Dispatch Number */}
-          {!isPurchase && (
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5, display: 'block' }}>
-                Dispatch Number
-              </Typography>
-              <TextField
-                size="small"
-                fullWidth
-                placeholder="e.g. DSP-00113"
-                value={dispatchFilter}
-                onChange={(e) => {
-                  setDispatchFilter(e.target.value);
-                  setPage(0);
-                }}
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-              />
-            </Box>
-          )}
-
-          {/* Selling Wise Additional Filter: Sales Person */}
-          {!isPurchase && (
-            <FormControl size="small" fullWidth>
-              <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
-                Sales Person
-              </Typography>
-              <Select
-                value={salesPersonFilter}
-                onChange={(e) => {
-                  setSalesPersonFilter(e.target.value);
-                  setPage(0);
-                }}
-                displayEmpty
-                sx={{ borderRadius: '8px' }}
-              >
-                {salesPersonOptions.map((sp) => (
-                  <MenuItem key={sp.value} value={sp.value}>
-                    {sp.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-        </Box>
-
-        <Divider sx={{ my: 2 }} />
-
-        {/* Quick Search */}
-        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems="center" spacing={2}>
-          <TextField
-            size="small"
-            placeholder={isPurchase ? "Search by Product, Vendor, Entry ID..." : "Search by Product, Customer, SO, Dispatch..."}
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setPage(0);
-            }}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchRounded fontSize="small" sx={{ color: 'text.secondary' }} />
-                  </InputAdornment>
-                ),
-                endAdornment: searchQuery ? (
-                  <InputAdornment position="end">
-                    <IconButton size="small" onClick={() => setSearchQuery('')}>
-                      <CloseRounded fontSize="small" />
-                    </IconButton>
-                  </InputAdornment>
-                ) : null,
-              },
-            }}
-            sx={{ width: { xs: '100%', sm: 360 }, '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-          />
-
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            Showing <b>{sortedRows.length}</b> product(s) in {isPurchase ? 'Purchase' : 'Selling'} view
-          </Typography>
-        </Stack>
-      </Paper>
+      <Box sx={{ mb: 2.5 }}>
+        <ReportChart title="Product price records by currency" points={groupChartRows(sortedRows, (row) => row.currency || 'INR')} />
+      </Box>
 
       {/* Summary KPI Cards */}
       <Box
         sx={{
           display: 'grid',
           gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' },
-          gap: 2,
-          mb: 3,
+          gap: 1,
+          mb: 2,
         }}
       >
         <StatCard
@@ -755,6 +487,207 @@ export default function PriceAnalysisPage() {
           iconColor="#d97706"
         />
       </Box>
+      {/* Filter Section - Single Line */}
+      <Paper variant="outlined" sx={{ p: 1.5, pt: 2, pb: 1.5, borderRadius: '12px', mb: 2.5, bgcolor: '#ffffff', overflow: 'visible' }}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={1}
+          useFlexGap
+          sx={{
+            width: '100%',
+            flexWrap: 'wrap',
+            '& > *': { maxWidth: '100%' },
+          }}
+        >
+          {/* Report Type Selector */}
+          <ToggleButtonGroup
+            value={reportType}
+            exclusive
+            onChange={handleReportTypeChange}
+            size="small"
+            sx={{
+              bgcolor: '#ffffff',
+              borderRadius: '8px',
+              '& .MuiToggleButton-root': {
+                textTransform: 'none',
+                fontWeight: 600,
+                px: 2,
+                fontSize: '0.82rem',
+                '&.Mui-selected': {
+                  bgcolor: palette.teal,
+                  color: '#ffffff',
+                  '&:hover': { bgcolor: '#1e5956ff' },
+                },
+              },
+            }}
+          >
+            <ToggleButton value="purchase">
+              <ShoppingCartOutlined sx={{ fontSize: 18, mr: 1 }} />
+              Purchase Wise
+            </ToggleButton>
+            <ToggleButton value="selling">
+              <StorefrontOutlined sx={{ fontSize: 18, mr: 1 }} />
+              Selling Wise
+            </ToggleButton>
+          </ToggleButtonGroup>
+
+          {/* Quick Search */}
+          <TextField
+            size="small"
+            placeholder={isPurchase ? 'Quick search product, vendor…' : 'Quick search product, customer, SO…'}
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPage(0);
+            }}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchRounded fontSize="small" sx={{ color: 'text.secondary' }} />
+                  </InputAdornment>
+                ),
+                endAdornment: searchQuery ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setSearchQuery('')}>
+                      <CloseRounded fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+              },
+            }}
+            sx={{ flex: '1.4 1 180px', minWidth: 150, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* Common 1: From Date */}
+          <TextField
+            type="date"
+            label="From Date"
+            size="small"
+            value={fromDate}
+            onChange={(e) => {
+              setFromDate(e.target.value);
+              setPage(0);
+            }}
+            slotProps={{ inputLabel: { shrink: true } }}
+            sx={{ flex: '0 0 auto', width: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* Common 2: To Date */}
+          <TextField
+            type="date"
+            label="To Date"
+            size="small"
+            value={toDate}
+            onChange={(e) => {
+              setToDate(e.target.value);
+              setPage(0);
+            }}
+            slotProps={{ inputLabel: { shrink: true } }}
+            sx={{ flex: '0 0 auto', width: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* Common 3: Product Name */}
+          <TextField
+            size="small"
+            label="Product Name"
+            placeholder="Search product..."
+            value={productNameFilter}
+            onChange={(e) => {
+              setProductNameFilter(e.target.value);
+              setPage(0);
+            }}
+            sx={{ flex: '1 1 140px', minWidth: 120, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* Purchase Wise Additional Filter: Vendor */}
+          {isPurchase && (
+            <FormControl size="small" sx={{ flex: '1.1 1 140px', minWidth: 120, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
+              <InputLabel>Vendor</InputLabel>
+              <Select
+                label="Vendor"
+                value={vendorFilter}
+                onChange={(e) => {
+                  setVendorFilter(e.target.value);
+                  setPage(0);
+                }}
+              >
+                {vendorOptions.map((v) => (
+                  <MenuItem key={v.value} value={v.value}>
+                    {v.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+
+          {/* Selling Wise Additional Filter: Customer */}
+          {!isPurchase && (
+            <FormControl size="small" sx={{ flex: '1.1 1 140px', minWidth: 120, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
+              <InputLabel>Customer</InputLabel>
+              <Select
+                label="Customer"
+                value={customerFilter}
+                onChange={(e) => {
+                  setCustomerFilter(e.target.value);
+                  setPage(0);
+                }}
+              >
+                {customerOptions.map((c) => (
+                  <MenuItem key={c.value} value={c.value}>
+                    {c.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+
+          {/* Selling Wise Additional Filter: Sales Person */}
+          {!isPurchase && (
+            <FormControl size="small" sx={{ flex: '1 1 130px', minWidth: 110, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
+              <InputLabel>Sales Person</InputLabel>
+              <Select
+                label="Sales Person"
+                value={salesPersonFilter}
+                onChange={(e) => {
+                  setSalesPersonFilter(e.target.value);
+                  setPage(0);
+                }}
+              >
+                {salesPersonOptions.map((sp) => (
+                  <MenuItem key={sp.value} value={sp.value}>
+                    {sp.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+
+          {/* Clear Filters */}
+          <Button
+            size="small"
+            variant="outlined"
+            color="inherit"
+            startIcon={<RestartAltRounded fontSize="small" />}
+            onClick={handleResetFilters}
+            sx={{
+              flex: '0 0 auto',
+              minWidth: 110,
+              height: 38,
+              textTransform: 'none',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              borderRadius: '8px',
+              color: 'text.secondary',
+              borderColor: '#cbd5e1',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Clear Filters
+          </Button>
+        </Stack>
+      </Paper>
 
       {/* Data Table */}
       <Paper variant="outlined" sx={{ borderRadius: '12px', overflow: 'hidden', bgcolor: '#ffffff' }}>

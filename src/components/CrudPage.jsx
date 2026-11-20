@@ -4,7 +4,7 @@ import EditIcon from '@mui/icons-material/EditOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import VisibilityIcon from '@mui/icons-material/VisibilityOutlined';
 import {
-  Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, InputAdornment,
+  Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, InputAdornment,
   Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -19,7 +19,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useUiStore } from '../stores/uiStore';
 import DocForm from './DocForm';
 
-const STATUS_COLOR = { Approved: 'info', 'Partially Dispatched': 'warning', Completed: 'success', Accepted: 'success', Rejected: 'error', Disapproved: 'error', Superseded: 'default', Sent: 'info' };
+const STATUS_COLOR = { 'Pending Approval': 'warning', Approved: 'info', 'Partially Dispatched': 'warning', Completed: 'success', Accepted: 'success', Rejected: 'error', Disapproved: 'error', Superseded: 'default', Sent: 'info' };
 
 const DISPATCH_STATUS_COLOR = {
   Draft: 'default',
@@ -51,7 +51,8 @@ const RECEIPT_STATUS_COLOR = {
 function Cell({ col, row, productMap }) {
   const v = col.getValue ? col.getValue(row) : row[col.field];
   if (col.field === 'product') {
-    return productMap?.[v] || productMap?.[row.product] || row.product_name || v || '';
+    const val = productMap?.[v] || productMap?.[row.product] || row.product_name || v || '';
+    return <span>{val}</span>;
   }
   if (col.type === 'doc-status')
     return <Chip size="small" color={row.is_completed ? 'success' : 'default'} label={row.is_completed ? 'Completed' : 'Draft'} sx={{ fontSize: '0.75rem', height: 24 }} />;
@@ -90,11 +91,11 @@ function Cell({ col, row, productMap }) {
       </Box>
     );
   }
-  if (col.type === 'currency') return row.currency ? `${row.currency} ${fmtNum(v, col.dp ?? 2)}` : fmtMoney(v, col.dp ?? 2);
-  if (col.type === 'number') return fmtNum(v, col.dp ?? 3);
-  if (col.type === 'date') return fmtDate(v);
+  if (col.type === 'currency') return <span>{row.currency ? `${row.currency} ${fmtNum(v, col.dp ?? 2)}` : fmtMoney(v, col.dp ?? 2)}</span>;
+  if (col.type === 'number') return <span>{fmtNum(v, col.dp ?? 3)}</span>;
+  if (col.type === 'date') return <span>{fmtDate(v)}</span>;
   if (col.type === 'flag') return v ? <Chip size="small" color="warning" label="Below cost" sx={{ fontSize: '0.75rem', height: 24 }} /> : null;
-  return v ?? '';
+  return <span>{v != null ? String(v) : ''}</span>;
 }
 
 /** List + add / edit / delete for one resource. Masters read from IndexedDB, transactions from the server. */
@@ -110,18 +111,23 @@ export default function CrudPage({ config, embedded = false }) {
 
   const cached = useLiveQuery(() => (config.master ? db.table(config.doctype).toArray() : []), [config.doctype]);
   const server = useQuery({ queryKey: ['list', config.doctype], queryFn: () => getList(config.doctype), enabled: !config.master });
-  const productList = useLiveQuery(() => db.table('Product').toArray(), []) || [];
+  const productList = useLiveQuery(() => db.table('Product').toArray(), []);
   const productMap = useMemo(() => {
     const m = {};
-    for (const p of productList) {
+    for (const p of productList ?? []) {
       if (p.name) m[p.name] = p.product_name || p.name;
       if (p.product_code) m[p.product_code] = p.product_name || p.name;
     }
     return m;
   }, [productList]);
 
+  const listing = useMemo(
+    () => (config.master ? [...(cached || [])].sort((a, b) => String(b.modified).localeCompare(String(a.modified))) : server.data) || [],
+    [cached, config.master, server.data],
+  );
+
   const rows = useMemo(() => {
-    let all = (config.master ? [...(cached || [])].sort((a, b) => String(b.modified).localeCompare(String(a.modified))) : server.data) || [];
+    let all = listing;
     if (config.transformRows) all = config.transformRows(all);
     if (config.filterRows) all = all.filter(config.filterRows);
     const q = search.trim().toLowerCase();
@@ -134,16 +140,24 @@ export default function CrudPage({ config, embedded = false }) {
           })
         )
       : all;
-  }, [cached, server.data, search, config, productMap]);
+  }, [listing, search, config, productMap]);
 
   const refresh = async () => {
     await qc.invalidateQueries();
-    if (config.master) await reloadMasters([config.doctype, ...(config.companion ? [config.companion.doctype] : [])]);
+    const companionDoctypes = config.companion?.doctypes || (config.companion?.doctype ? [config.companion.doctype] : []);
+    if (config.master) await reloadMasters([config.doctype, ...companionDoctypes]);
   };
 
   const remove = useMutation({
     mutationFn: async (name) => {
-      if (config.companion && (await db.table(config.companion.doctype).get(name))) await deleteDoc(config.companion.doctype, name);
+      const companionDoctypes = config.companion?.doctypes || (config.companion?.doctype ? [config.companion.doctype] : []);
+      for (const doctype of companionDoctypes) {
+        let exists = !!(await db.table(doctype).get(name));
+        if (!exists) {
+          try { exists = !!(await getDoc(doctype, name)); } catch (_) { exists = false; }
+        }
+        if (exists) await deleteDoc(doctype, name);
+      }
       return deleteDoc(config.doctype, name);
     },
     onSuccess: async () => { await refresh(); notify('Deleted'); setDeleting(null); },
@@ -157,7 +171,9 @@ export default function CrudPage({ config, embedded = false }) {
 
   const openRow = async (row) => setEditing(config.master ? { ...row, ...(config.companion ? await config.companion.load(row) : {}) } : await getDoc(config.doctype, row.name));
   const isLocked = (r) => !!r.is_completed || !!config.isLocked?.(r);
-  const pageRows = rows.slice(page * perPage, page * perPage + perPage);
+  const totalPages = Math.ceil(rows.length / perPage);
+  const safePage = rows.length === 0 ? 0 : Math.min(page, Math.max(0, totalPages - 1));
+  const pageRows = rows.slice(safePage * perPage, safePage * perPage + perPage);
 
   // ── surya:open-doc event ──────────────────────────────────────────────────
   // This is the ONLY way to programmatically open a doc in the dialog.
@@ -206,26 +222,30 @@ export default function CrudPage({ config, embedded = false }) {
 
   return (
     <Box sx={{ p: { xs: 1.5, md: 2 }, width: '100%', boxSizing: 'border-box' }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 1.5, alignItems: { sm: 'center' }, justifyContent: 'space-between' }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2, alignItems: { sm: 'center' }, justifyContent: 'space-between' }}>
         <Box>
           {!embedded && <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{config.plural || `${config.title}s`}</Typography>}
           {config.subtitle && !embedded && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{config.subtitle}</Typography>}
         </Box>
-        <Stack direction="row" spacing={1.5}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ minWidth: 0 }}>
           <TextField
             size="small"
             placeholder="Search..."
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(0); }}
             sx={{
-              width: 220,
-              borderRadius: '8px',
+              width: { xs: '100%', sm: 220 },
               '& .MuiOutlinedInput-root': {
                 borderRadius: '8px',
                 bgcolor: 'background.paper',
+                '& fieldset': {
+                  top: 0,
+                  borderRadius: '8px',
+                  '& legend': { display: 'none' },
+                },
               },
             }}
-            slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }}
+            slotProps={{ htmlInput: { 'aria-label': 'Search' }, input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }}
           />
           {!config.readOnlyList && (
             <Button
@@ -233,7 +253,7 @@ export default function CrudPage({ config, embedded = false }) {
               variant="contained"
               startIcon={<AddIcon />}
               onClick={() => setEditing(config.newDoc ? config.newDoc() : {})}
-              sx={{ textTransform: 'none', fontWeight: 600, py: 0.5, borderRadius: '8px' }}
+              sx={{ flexShrink: 0, alignSelf: { xs: 'flex-start', sm: 'stretch' } }}
             >
               Add {config.title}
             </Button>
@@ -241,9 +261,9 @@ export default function CrudPage({ config, embedded = false }) {
         </Stack>
       </Stack>
 
-      <Paper variant="outlined" sx={{ borderRadius: 1.5, overflow: 'hidden' }}>
-        <TableContainer sx={{ width: '100%', overflowX: 'auto', scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' } }}>
-          <Table size="small" sx={{ width: '100%', '& .MuiTableCell-root': { py: 0.75, px: 1.25, fontSize: '0.88rem' } }}>
+      <Paper variant="outlined" sx={{ overflow: 'hidden', boxShadow: '0 2px 8px rgb(20 36 58 / 4%)' }}>
+        <TableContainer tabIndex={0} aria-label={config.plural || config.title} sx={{ '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: -2 } }}>
+          <Table size="small" sx={{ width: '100%', '& .MuiTableCell-root': { py: 1, px: 1.5, fontSize: '0.88rem' } }}>
             <TableHead>
               <TableRow sx={{ bgcolor: 'action.hover' }}>
                 {config.columns.map((c) => (
@@ -312,8 +332,14 @@ export default function CrudPage({ config, embedded = false }) {
               })}
               {pageRows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={config.columns.length + 1} sx={{ py: 6, textAlign: 'center' }}>
-                    <Typography color="text.secondary">{search ? 'Nothing matches your search.' : config.readOnlyList ? 'Nothing here yet.' : `No ${config.plural?.toLowerCase() || config.title.toLowerCase() + 's'} yet. Use "Add ${config.title}" to create the first one.`}</Typography>
+                  <TableCell colSpan={config.columns.length + (config.readOnlyList ? 0 : 1)} sx={{ py: 6, textAlign: 'center' }}>
+                    {(!config.master && server.isLoading) || (config.master && cached === undefined) ? (
+                      <CircularProgress size={22} aria-label="Loading records" />
+                    ) : server.isError && !server.data ? (
+                      <Typography color="error" role="alert">Could not load records.</Typography>
+                    ) : (
+                      <Typography color="text.secondary">{search ? 'Nothing matches your search.' : config.readOnlyList ? 'Nothing here yet.' : `No ${config.plural?.toLowerCase() || config.title.toLowerCase() + 's'} yet. Use "Add ${config.title}" to create the first one.`}</Typography>
+                    )}
                   </TableCell>
                 </TableRow>
               )}
@@ -323,7 +349,7 @@ export default function CrudPage({ config, embedded = false }) {
         <TablePagination
           component="div"
           count={rows.length}
-          page={page}
+          page={safePage}
           rowsPerPage={perPage}
           rowsPerPageOptions={[10, 25, 50]}
           onPageChange={(_, p) => setPage(p)}
