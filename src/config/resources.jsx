@@ -1,11 +1,11 @@
-import { beltBatchConfig } from './beltBatchResource';
+import { beltBatchConfig } from '../pages/production/belt/beltBatchResource';
 /**
  * One config per screen. CrudPage + DocForm turn these into list, form, validation and live maths.
  * @typedef {{name:string,label:string,type?:string,master?:string,doctype?:string,filter?:Function,required?:boolean,
  *   readOnly?:boolean,readOnlyOnEdit?:boolean,summary?:boolean,positive?:boolean,showIf?:Function,options?:string[]}} FieldConfig
  */
 import React from 'react';
-import { enhanceQuotation, quotationMasters, getEffectiveQuotationStatus, fetchProductInfo, setProduct } from '../lib/quotationFeatures';
+import { enhanceQuotation, quotationMasters, getEffectiveQuotationStatus, fetchProductInfo, setProduct } from '../pages/quotation/quotationFeatures';
 import { Box, Button, Chip, LinearProgress, Stack, Typography } from '@mui/material';
 import AssignmentReturnIcon from '@mui/icons-material/AssignmentReturn';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -19,7 +19,7 @@ import QtyDialog from '../components/QtyDialog';
 import ReturnDialog from '../components/ReturnDialog';
 import GoodsReceiptDialog from '../components/GoodsReceiptDialog';
 import { todayISO } from '../lib/format';
-import QuotationVersionBar, { openQuotation } from '../components/QuotationVersionBar';
+import QuotationVersionBar, { openQuotation } from '../pages/quotation/QuotationVersionBar';
 
 // ---- field helpers ---------------------------------------------------------
 const t = (name, label, x = {}) => ({ name, label, type: 'text', ...x });
@@ -153,8 +153,8 @@ const beltSteps = (v) => Number(v?.total_steps) || 4;
 
 const product = {
   doctype: 'Product', master: true, title: 'Product', tableTabs: true,
-  tableTabsEmpty: 'Raw products do not use a BOM. Select Product type "Semi" or "Finished" to configure BOM stages.',
-  subtitle: 'Raw, semi-finished and finished products. Semi / Finished products carry their BOM stages here.',
+  tableTabsEmpty: 'Raw products do not use a recipe. Select Product type "Semi" or "Finished" to configure production stages.',
+  subtitle: 'Raw, semi-finished and finished products. Production recipes are stored separately for belts and in BOM for other products.',
   fields: [
     t('product_name', 'Product name', { required: true }),
     { name: 'description', label: 'Description', type: 'textarea' },
@@ -215,7 +215,7 @@ const product = {
       showIf: (v) => v.product_type && v.product_type !== 'Raw' && v.finished_good_type !== 'Belt',
       default: () => 3,
     }),
-    sel('total_steps', 'BOM Stages (Total steps)', [
+    sel('total_steps', 'Production Stages (Total steps)', [
       { value: 1, label: 'Stage 1 (Roll Creation)' },
       { value: 2, label: 'Stage 2 (Roll Creation, Roll Sizing)' },
       { value: 3, label: 'Stage 3 (Roll Sizing, Finished & Charge)' },
@@ -266,7 +266,7 @@ const product = {
     },
     {
       name: 'belt_p1_items',
-      label: 'BOM - Stage 1 (Roll Creation)',
+      label: 'Belt Production - Stage 1 (Roll Creation)',
       empty: 'Configure Stage 1 roll creation materials.',
       fields: [
         link('process', 'Process', 'Process'),
@@ -278,7 +278,7 @@ const product = {
     },
     {
       name: 'belt_p2_items',
-      label: 'BOM - Stage 2 (Roll Sizing)',
+      label: 'Belt Production - Stage 2 (Roll Sizing)',
       empty: 'Configure Stage 2 roll sizing materials.',
       fields: [
         link('process', 'Process', 'Process'),
@@ -290,7 +290,7 @@ const product = {
     },
     {
       name: 'belt_p3_items',
-      label: 'BOM - Stage 3 (Roll Finished)',
+      label: 'Belt Production - Stage 3 (Roll Finished)',
       empty: 'Configure Stage 3 roll finished materials.',
       fields: [
         link('process', 'Process', 'Process'),
@@ -303,7 +303,7 @@ const product = {
     },
     {
       name: 'belt_p4_charges',
-      label: 'BOM - Stage 4 (Charges)',
+      label: 'Belt Production - Stage 4 (Charges)',
       empty: 'Configure Stage 4 charges.',
       fields: [
         link('charge', 'Charge', 'Charge', { required: true, minWidth: 200 }),
@@ -344,9 +344,9 @@ const product = {
         if (numSteps >= 3 && !v.stage3_charges?.length) e.stage3_charges = 'Add Stage 3 charges';
       } else {
         if (![1, 2, 3, 4].includes(numSteps)) e.total_steps = 'Select 1, 2, 3 or 4 stages';
-        if ([1, 2, 4].includes(numSteps) && !v.belt_p1_items?.length) e.belt_p1_items = 'Add Stage 1 (Roll Creation) BOM rows';
-        if ([2, 3, 4].includes(numSteps) && !v.belt_p2_items?.length) e.belt_p2_items = 'Add Stage 2 (Roll Sizing) BOM rows';
-        if ([3, 4].includes(numSteps) && !v.belt_p3_items?.length) e.belt_p3_items = 'Add Stage 3 (Roll Finished) BOM rows';
+        if ([1, 2, 4].includes(numSteps) && !v.belt_p1_items?.length) e.belt_p1_items = 'Add Belt Production Stage 1 rows';
+        if ([2, 3, 4].includes(numSteps) && !v.belt_p2_items?.length) e.belt_p2_items = 'Add Belt Production Stage 2 rows';
+        if ([3, 4].includes(numSteps) && !v.belt_p3_items?.length) e.belt_p3_items = 'Add Belt Production Stage 3 rows';
         if ([3, 4].includes(numSteps) && !v.belt_p4_charges?.length) e.belt_p4_charges = 'Add Stage 4 (Charges) rows';
       }
     }
@@ -354,88 +354,89 @@ const product = {
   },
   companion: {
     doctype: 'BOM',
+    doctypes: ['BOM', 'Belt Production'],
     tables: BOM_TABLES,
     async load(row) {
-      let b = await db.BOM.get(row.name);
-      if (!b) {
+      const isBelt = row.finished_good_type === 'Belt';
+      let recipe = isBelt ? await db.table('Belt Production').get(row.name) : null;
+      if (!recipe && isBelt) {
         try {
-          b = await getDoc('BOM', row.name);
+          recipe = await getDoc('Belt Production', row.name);
         } catch (_) {
-          b = null;
+          recipe = null;
         }
       }
-      if (!b) return {};
-      const res = Object.fromEntries(BOM_TABLES.map((k) => [k, b[k] || []]));
-      if (row.finished_good_type === 'Belt') {
-        res.belt_p1_items = (b.stage1_items?.length ? b.stage1_items : b.belt_p1_items) || [];
-        res.belt_p2_items = (b.stage2_items?.length ? b.stage2_items : b.belt_p2_items) || [];
-        res.belt_p3_items = (b.stage3_items?.length ? b.stage3_items : b.belt_p3_items) || [];
-        res.belt_p4_charges = (b.stage3_charges?.length ? b.stage3_charges : b.belt_p4_charges) || [];
-        res.total_steps = row.total_steps || b.total_steps || 4;
+      // Fall back to the legacy BOM until the post-model-sync migration has copied it.
+      if (!recipe) {
+        try {
+          recipe = await db.BOM.get(row.name) || await getDoc('BOM', row.name);
+        } catch (_) {
+          recipe = null;
+        }
+      }
+      if (!recipe) return {};
+      const res = Object.fromEntries(BOM_TABLES.map((k) => [k, recipe[k] || []]));
+      if (isBelt) {
+        res.belt_p1_items = recipe.stage1_items || recipe.belt_p1_items || [];
+        res.belt_p2_items = recipe.stage2_items || recipe.belt_p2_items || [];
+        res.belt_p3_items = recipe.stage3_items || recipe.belt_p3_items || [];
+        res.belt_p4_charges = recipe.stage4_charges || recipe.stage3_charges || recipe.belt_p4_charges || [];
+        res.total_steps = row.total_steps || recipe.total_steps || 4;
       }
       return res;
     },
     async save(saved, tables) {
-      let exists = !!(await db.BOM.get(saved.name));
-      if (!exists) {
-        try {
-          exists = !!(await getDoc('BOM', saved.name));
-        } catch (_) {
-          exists = false;
-        }
-      }
-      if (saved.product_type === 'Raw') { if (exists) await deleteDoc('BOM', saved.name); return; }
       const isB = (saved.product_type === 'Finished' || saved.product_type === 'Semi') && saved.finished_good_type === 'Belt';
+      const hasDoc = async (doctype) => {
+        if (await db.table(doctype).get(saved.name)) return true;
+        try { return !!(await getDoc(doctype, saved.name)); } catch (_) { return false; }
+      };
+      let bomExists = await hasDoc('BOM');
+      let beltProductionExists = await hasDoc('Belt Production');
+      if (saved.product_type === 'Raw') {
+        if (bomExists) await deleteDoc('BOM', saved.name);
+        if (beltProductionExists) await deleteDoc('Belt Production', saved.name);
+        return;
+      }
       const s = Number(saved.total_steps) || (isB ? 4 : 3);
       const holeCount = Number(saved.hole) || 0;
+      if (isB) {
+        const body = {
+          product: saved.name,
+          total_steps: s,
+          stage1_items: [1, 2, 4].includes(s) ? (tables.belt_p1_items || []).map((r) => ({
+            process: r.process || '', product: r.product, per_unit_utilization: Number(r.per_unit_utilization) || 0,
+          })) : [],
+          stage2_items: [2, 3, 4].includes(s) ? (tables.belt_p2_items || []).map((r) => ({
+            process: r.process || '', product: r.product, ratio: Number(r.ratio) || 0, per_unit_utilization: Number(r.ratio) || 0,
+          })) : [],
+          stage3_items: [3, 4].includes(s) ? (tables.belt_p3_items || []).map((r) => {
+            const ratio = Number(r.ratio) || 0;
+            const calculation_type = r.calculation_type || 'Quantity';
+            return {
+              process: r.process || '', product: r.product, calculation_type, ratio,
+              per_unit_utilization: calculation_type === 'Hole' ? holeCount * ratio : ratio,
+            };
+          }) : [],
+          stage4_charges: [3, 4].includes(s) ? (tables.belt_p4_charges || []).map((r) => ({
+            charge: r.charge, per_unit_price: Number(r.per_unit_price) || 0,
+          })) : [],
+        };
+        if (beltProductionExists) await updateDoc('Belt Production', saved.name, body);
+        else await insertDoc('Belt Production', body);
+        if (bomExists) await deleteDoc('BOM', saved.name);
+        return;
+      }
+
+      if (beltProductionExists) await deleteDoc('Belt Production', saved.name);
       const body = {
         product: saved.name,
         total_steps: s,
-        ...(isB
-          ? {
-              stage1_items: [1, 2, 4].includes(s)
-                ? (tables.belt_p1_items || []).map((r) => ({
-                    process: r.process || '',
-                    product: r.product,
-                    per_unit_utilization: Number(r.per_unit_utilization) || 0,
-                  }))
-                : [],
-              stage2_items: [2, 3, 4].includes(s)
-                ? (tables.belt_p2_items || []).map((r) => ({
-                    process: r.process || '',
-                    product: r.product,
-                    ratio: Number(r.ratio) || 0,
-                    per_unit_utilization: Number(r.ratio) || 0,
-                  }))
-                : [],
-              stage3_items: [3, 4].includes(s)
-                ? (tables.belt_p3_items || []).map((r) => {
-                    const ratio = Number(r.ratio) || 0;
-                    const calcType = r.calculation_type || 'Quantity';
-                    const perUnit = calcType === 'Hole' ? holeCount * ratio : ratio;
-                    return {
-                      process: r.process || '',
-                      product: r.product,
-                      calculation_type: calcType,
-                      ratio,
-                      per_unit_utilization: perUnit,
-                    };
-                  })
-                : [],
-              stage3_charges: [3, 4].includes(s)
-                ? (tables.belt_p4_charges || []).map((r) => ({
-                    charge: r.charge,
-                    per_unit_price: Number(r.per_unit_price) || 0,
-                  }))
-                : [],
-            }
-          : {
-              stage1_items: tables.stage1_items || [],
-              stage2_items: s >= 2 ? tables.stage2_items || [] : [],
-              stage3_charges: s >= 3 ? tables.stage3_charges || [] : [],
-            }),
+        stage1_items: tables.stage1_items || [],
+        stage2_items: s >= 2 ? tables.stage2_items || [] : [],
+        stage3_charges: s >= 3 ? tables.stage3_charges || [] : [],
       };
-      if (exists) await updateDoc('BOM', saved.name, body);
+      if (bomExists) await updateDoc('BOM', saved.name, body);
       else await insertDoc('BOM', body);
     },
   },
@@ -659,6 +660,7 @@ const stageConfig = (stage) => ({
   plural: STAGE_PLURALS[stage] || `Stage ${stage} batches`,
   completable: true,
   summaryTitle: 'Live cost',
+  mainFieldFontSize: stage === 2 ? '1.06rem' : undefined,
   fields: [
     link('product', stage === 3 ? 'Finished product' : 'Product to produce', 'Product', {
       required: true,
@@ -667,7 +669,7 @@ const stageConfig = (stage) => ({
     }),
     //t('production_code', 'Production Code'),
     num('quantity', 'Quantity produced', { positive: true }),
-    ...(stage === 2 ? [num('size', 'Size', { positive: true })] : []),
+    ...(stage === 2 ? [num('size', 'Size', { positive: true, hidden: true })] : []),
     date('posting_date', 'Date'),
     t('operator', 'Operator / Worker'),
     link('machine', 'Machine', 'CNC Machine', { filter: (r) => r.status === 'Active' }),
@@ -683,7 +685,14 @@ const stageConfig = (stage) => ({
     //ro(t('status', 'Status')),
   ],
   tables: [
-    { name: 'items', label: stage === 1 ? 'Insert / Raw materials' : stage === 2 ? 'Consumption (carried-in + raw)' : 'Carried-in stock ', fields: itemFields, noAdd: true },
+    { name: 'items', label: stage === 1 ? 'Insert / Raw materials' : stage === 2 ? 'Consumption (carried-in + raw)' : 'Carried-in stock ', fields: stage === 2 ? itemFields.map((field) => {
+      if (!['number', 'currency'].includes(field.type)) return field;
+      return {
+        ...field,
+        label: field.name === 'unit_price' ? 'Unit cost' : field.label,
+        fixedDp: 5,
+      };
+    }) : itemFields, noAdd: true },
     ...(stage === 3 ? [{ name: 'charges', label: 'Charges', noAdd: true, fields: [link('charge', 'Charge', 'Charge', { readOnly: true }), cur('per_unit_price', 'Per unit'), { name: 'in_tooling_base', label: 'In tooling base', type: 'check' }, ro(cur('amount', 'Amount'))] }] : []),
   ],
 

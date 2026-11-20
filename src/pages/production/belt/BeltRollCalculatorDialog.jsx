@@ -23,8 +23,8 @@ import {
   calculateProductionQtyFromRoll,
   calculateBeltComponents,
   getBeltDivisionFactor,
-} from '../lib/beltBatchLogic';
-import { fmtNum } from '../lib/format';
+} from './beltBatchLogic';
+import { fmtNum } from '../../../lib/format';
 
 export default function BeltRollCalculatorDialog({ open, onClose, onApplyToBatch, defaultValues = {} }) {
   const [calcMode, setCalcMode] = useState('qty_to_roll'); // 'qty_to_roll' | 'roll_to_qty'

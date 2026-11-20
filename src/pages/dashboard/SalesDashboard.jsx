@@ -4,7 +4,6 @@ import {
   Button,
   Chip,
   CircularProgress,
-  Divider,
   Paper,
   Stack,
   Table,
@@ -27,56 +26,11 @@ import {
 } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
 import { NavLink } from 'react-router-dom';
+import KpiCard from '../../components/KpiCard';
 import { call } from '../../api/client';
 import { fmtMoney, fmtNum } from '../../lib/format';
 import { useAuthStore } from '../../stores/authStore';
 import { palette } from '../../theme';
-
-function StatCard({ label, value, note, icon: Icon, color = palette.teal }) {
-  return (
-    <Paper
-      variant="outlined"
-      sx={{
-        p: 2.5,
-        borderRadius: '12px',
-        bgcolor: '#ffffff',
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'space-between',
-        transition: 'all 0.2s ease',
-        '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 8px 16px -4px rgba(0,0,0,0.06)' },
-      }}
-    >
-      <Box sx={{ minWidth: 0 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 650, textTransform: 'uppercase', fontSize: 11 }}>
-          {label}
-        </Typography>
-        <Typography variant="h5" sx={{ mt: 0.5, fontWeight: 750, color: '#0f172a' }}>
-          {value}
-        </Typography>
-        {note && (
-          <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5, display: 'block' }}>
-            {note}
-          </Typography>
-        )}
-      </Box>
-      <Box
-        sx={{
-          width: 40,
-          height: 40,
-          borderRadius: '10px',
-          bgcolor: `${color}15`,
-          color: color,
-          display: 'grid',
-          placeItems: 'center',
-          flexShrink: 0,
-        }}
-      >
-        <Icon fontSize="small" />
-      </Box>
-    </Paper>
-  );
-}
 
 export default function SalesDashboard() {
   const { fullName, salesPerson } = useAuthStore();
@@ -88,20 +42,24 @@ export default function SalesDashboard() {
   });
 
   const d = data || {};
+  const chartMax = d.monthly_chart?.reduce(
+    (max, month) => Math.max(max, month.quotations_amount || 0, month.orders_amount || 0),
+    1,
+  );
 
   return (
-    <Stack spacing={3.5}>
+    <Stack spacing={3} sx={{ p: { xs: 2, md: 3 } }}>
       {/* Welcome Banner */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2, p: { xs: 2, md: 3 }, borderRadius: 2, bgcolor: 'background.paper', border: 1, borderColor: 'divider' }}>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 800, color: '#0f172a' }}>
+          <Typography variant="h5" component="h1">
             Welcome back, {salesPerson?.sales_person_name || fullName}!
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Here is your live sales performance and customer order pipeline.
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1.5}>
+        <Stack direction="row" useFlexGap sx={{ gap: 1.25, flexWrap: 'wrap' }}>
           <Button
             component={NavLink}
             to="/quotation"
@@ -124,57 +82,57 @@ export default function SalesDashboard() {
       </Box>
 
       {/* KPI Cards Grid */}
-      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(4, 1fr)' } }}>
-        <StatCard
+      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' } }}>
+        <KpiCard
           label="Total Customers"
           value={fmtNum(d.total_customers || 0, 0)}
           icon={PeopleIcon}
           color="#0284c7"
           note="Assigned to your account"
         />
-        <StatCard
+        <KpiCard
           label="Total Quotations"
           value={fmtNum(d.total_quotations || 0, 0)}
           icon={QuoteIcon}
           color="#8b5cf6"
           note={`${d.accepted_quotations || 0} accepted / approved`}
         />
-        <StatCard
+        <KpiCard
           label="Pending Quotations"
           value={fmtNum(d.pending_quotations || 0, 0)}
           icon={PendingIcon}
           color="#f59e0b"
           note="Awaiting review or order"
         />
-        <StatCard
+        <KpiCard
           label="Monthly Sales"
           value={fmtMoney(d.monthly_sales_amount || 0)}
           icon={MoneyIcon}
           color="#10b981"
           note="Confirmed sales this month"
         />
-        <StatCard
+        <KpiCard
           label="Total Sales Orders"
           value={fmtNum(d.total_sales_orders || 0, 0)}
           icon={OrderIcon}
           color="#0f766e"
           note="Total orders received"
         />
-        <StatCard
+        <KpiCard
           label="Pending Orders"
           value={fmtNum(d.pending_orders || 0, 0)}
           icon={PendingIcon}
           color="#d97706"
           note="Awaiting admin approval"
         />
-        <StatCard
+        <KpiCard
           label="Completed Orders"
           value={fmtNum(d.completed_orders || 0, 0)}
           icon={CheckIcon}
           color="#059669"
           note="Delivered & confirmed"
         />
-        <StatCard
+        <KpiCard
           label="Approval Queue"
           value={fmtNum((d.pending_approvals || []).length, 0)}
           icon={TrendingIcon}
@@ -192,35 +150,36 @@ export default function SalesDashboard() {
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2.5 }}>
             Comparison of total value quoted vs. confirmed sales orders.
           </Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: `repeat(${d.monthly_chart.length}, 1fr)`, gap: 2, alignItems: 'flex-end', height: 180, pt: 2, pb: 1 }}>
-            {d.monthly_chart.map((m, idx) => {
-              const maxVal = Math.max(...d.monthly_chart.map((c) => Math.max(c.quotations_amount || 0, c.orders_amount || 0)), 1);
-              const qHeight = Math.max(8, ((m.quotations_amount || 0) / maxVal) * 120);
-              const oHeight = Math.max(8, ((m.orders_amount || 0) / maxVal) * 120);
+          <Box sx={{ overflowX: 'auto' }}>
+            <Box sx={{ minWidth: d.monthly_chart.length * 80, display: 'grid', gridTemplateColumns: `repeat(${d.monthly_chart.length}, 1fr)`, gap: 2, alignItems: 'flex-end', height: 180, pt: 2, pb: 1 }}>
+              {d.monthly_chart.map((m, idx) => {
+                const qHeight = Math.max(8, ((m.quotations_amount || 0) / chartMax) * 120);
+                const oHeight = Math.max(8, ((m.orders_amount || 0) / chartMax) * 120);
 
-              return (
-                <Box key={idx} sx={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
-                  <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-end', width: '100%', justifyContent: 'center' }}>
-                    <Box
-                      title={`Quoted: ${fmtMoney(m.quotations_amount)}`}
-                      sx={{ width: 14, height: `${qHeight}px`, bgcolor: '#cbd5e1', borderRadius: '4px 4px 0 0', transition: 'all 0.3s' }}
-                    />
-                    <Box
-                      title={`Ordered: ${fmtMoney(m.orders_amount)}`}
-                      sx={{ width: 14, height: `${oHeight}px`, bgcolor: palette.teal, borderRadius: '4px 4px 0 0', transition: 'all 0.3s' }}
-                    />
+                return (
+                  <Box key={idx} sx={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
+                    <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-end', width: '100%', justifyContent: 'center' }}>
+                      <Box
+                        title={`Quoted: ${fmtMoney(m.quotations_amount)}`}
+                        sx={{ width: 14, height: `${qHeight}px`, bgcolor: '#cbd5e1', borderRadius: '4px 4px 0 0', transition: 'all 0.3s' }}
+                      />
+                      <Box
+                        title={`Ordered: ${fmtMoney(m.orders_amount)}`}
+                        sx={{ width: 14, height: `${oHeight}px`, bgcolor: palette.teal, borderRadius: '4px 4px 0 0', transition: 'all 0.3s' }}
+                      />
+                    </Box>
+                    <Typography variant="caption" sx={{ mt: 1, fontWeight: 650, fontSize: 11, color: '#64748b' }}>
+                      {m.month}
+                    </Typography>
+                    <Typography variant="caption" sx={{ fontSize: 10, color: palette.teal, fontWeight: 700 }}>
+                      {fmtMoney(m.orders_amount, 0)}
+                    </Typography>
                   </Box>
-                  <Typography variant="caption" sx={{ mt: 1, fontWeight: 650, fontSize: 11, color: '#64748b' }}>
-                    {m.month}
-                  </Typography>
-                  <Typography variant="caption" sx={{ fontSize: 10, color: palette.teal, fontWeight: 700 }}>
-                    {fmtMoney(m.orders_amount, 0)}
-                  </Typography>
-                </Box>
-              );
-            })}
+                );
+              })}
+            </Box>
           </Box>
-          <Stack direction="row" spacing={3} sx={{ mt: 2, justifyContent: 'center' }}>
+          <Stack direction="row" useFlexGap sx={{ gap: 2, flexWrap: 'wrap', mt: 2, justifyContent: 'center' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Box sx={{ width: 12, height: 12, bgcolor: '#cbd5e1', borderRadius: '3px' }} />
               <Typography variant="caption" sx={{ fontWeight: 600 }}>Quoted Amount</Typography>
@@ -234,7 +193,7 @@ export default function SalesDashboard() {
       )}
 
       {/* Two Column Section: Recent Quotations & Recent Orders */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 3 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' }, gap: 3 }}>
         {/* Recent Quotations Table */}
         <Paper variant="outlined" sx={{ p: 2.5, borderRadius: '14px', bgcolor: '#ffffff' }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>

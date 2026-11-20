@@ -1,3 +1,4 @@
+import ReportChart, { groupChartRows } from '../../../components/ReportChart';
 import React, { useMemo, useState } from 'react';
 import {
   Box,
@@ -5,6 +6,8 @@ import {
   Chip,
   FormControl,
   Grid,
+  IconButton,
+  InputAdornment,
   InputLabel,
   MenuItem,
   Paper,
@@ -31,6 +34,9 @@ import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
 import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined';
 import LayersOutlinedIcon from '@mui/icons-material/LayersOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import SearchIcon from '@mui/icons-material/SearchRounded';
+import CloseIcon from '@mui/icons-material/CloseRounded';
+import RestartAltRounded from '@mui/icons-material/RestartAltRounded';
 import { useQuery } from '@tanstack/react-query';
 import { call } from '../../../api/client';
 import { fmtNum } from '../../../lib/format';
@@ -85,8 +91,18 @@ export default function CncProductionReportPage() {
   const [toDate, setToDate] = useState('');
   const [machine, setMachine] = useState('All');
   const [shift, setShift] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
+
+  const handleResetFilters = () => {
+    setFromDate('');
+    setToDate('');
+    setMachine('All');
+    setShift('All');
+    setSearchQuery('');
+    setPage(0);
+  };
 
   // 1. Fetch CNC report
   const cncQuery = useQuery({
@@ -140,6 +156,20 @@ export default function CncProductionReportPage() {
   const summary = cncData.summary || {};
   const grindSummary = grindData.summary || {};
   const coatingSummary = bondData.coating || {};
+
+  const filteredCncRows = useMemo(() => {
+    const list = cncData.rows || [];
+    if (!searchQuery.trim()) return list;
+    const q = searchQuery.toLowerCase();
+    return list.filter((r) =>
+      (r.name || '').toLowerCase().includes(q) ||
+      (r.product || '').toLowerCase().includes(q) ||
+      (r.product_name || '').toLowerCase().includes(q) ||
+      (r.operator || '').toLowerCase().includes(q) ||
+      (r.machine || '').toLowerCase().includes(q) ||
+      (r.rejection_reason || '').toLowerCase().includes(q)
+    );
+  }, [cncData.rows, searchQuery]);
 
   // Export to CSV
   const exportCsv = (filename, headers, rows) => {
@@ -233,7 +263,15 @@ export default function CncProductionReportPage() {
               grindingQuery.refetch();
               bondingQuery.refetch();
             }}
-            sx={{ textTransform: 'none', borderRadius: '8px' }}
+             sx={{
+              bgcolor: '#0284c7',
+              color: '#ffffff',
+              '&:hover': { bgcolor: '#0369a1' },
+              borderRadius: '8px',
+              textTransform: 'none',
+              boxShadow: 'none',
+              fontWeight: 600,
+            }}
           >
             Refresh
           </Button>
@@ -241,38 +279,84 @@ export default function CncProductionReportPage() {
             variant="contained"
             startIcon={<DownloadIcon />}
             onClick={handleExport}
-            sx={{ textTransform: 'none', borderRadius: '8px', bgcolor: '#0f766e', '&:hover': { bgcolor: '#0d655e' } }}
-          >
+            sx={{  bgcolor: '#16a34a',
+              color: '#ffffff',
+              '&:hover': { bgcolor: '#15803d' },
+              borderRadius: '8px',
+              textTransform: 'none',
+              boxShadow: 'none',
+              fontWeight: 600,}} >
             Export CSV
           </Button>
         </Stack>
       </Stack>
 
+      <Box sx={{ mb: 2.5 }}>
+        <ReportChart title="CNC records by machine" points={groupChartRows(filteredCncRows, (row) => row.machine)} />
+      </Box>
+
       {/* KPI Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
+      <Grid container spacing={1} sx={{ mb: 2 }}>
         <Grid item xs={12} sm={6} md={2}>
           <StatCard label="CNC Input Qty" value={fmtNum(summary.total_input || 0)} subtitle={`${summary.total_logs || 0} Operations`} icon={PrecisionManufacturingIcon} color="#2563eb" />
         </Grid>
         <Grid item xs={12} sm={6} md={2}>
-          <StatCard label="Accepted Output" value={fmtNum(summary.total_accepted || 0)} subtitle="Completed Good Qty" icon={CheckCircleOutlineIcon} color="#059669" />
+          <StatCard label="Accepted Output" value={fmtNum(summary.total_accepted || 0)} subtitle="Finished Good Qty" icon={CheckCircleOutlineIcon} color="#059669" />
         </Grid>
         <Grid item xs={12} sm={6} md={2}>
           <StatCard label="Rejection Qty" value={fmtNum(summary.total_rejected || 0)} subtitle={`Rate: ${fmtNum(summary.rejection_rate || 0, 1)}%`} icon={CancelOutlinedIcon} color="#dc2626" />
         </Grid>
         <Grid item xs={12} sm={6} md={2}>
-          <StatCard label="Pending In-Process" value={fmtNum(summary.total_pending || 0)} subtitle="Awaiting Next Operation" icon={HourglassEmptyIcon} color="#d97706" />
+          <StatCard label="Pending Process" value={fmtNum(summary.total_pending || 0)} subtitle="Waiting Next Stage" icon={HourglassEmptyIcon} color="#d97706" />
         </Grid>
         <Grid item xs={12} sm={6} md={2}>
-          <StatCard label="Pending at Vendor" value={fmtNum(grindSummary.total_pending || 0)} subtitle="External Grinding" icon={LocalShippingOutlinedIcon} color="#7c3aed" />
+          <StatCard label="Pending Vendor" value={fmtNum(grindSummary.total_pending || 0)} subtitle="External Grinding" icon={LocalShippingOutlinedIcon} color="#7c3aed" />
         </Grid>
         <Grid item xs={12} sm={6} md={2}>
           <StatCard label="Rolls Coated" value={`${fmtNum(coatingSummary.total_meters || 0)} M`} subtitle={`${coatingSummary.rows?.length || 0} Rolls Coated`} icon={LayersOutlinedIcon} color="#0891b2" />
         </Grid>
       </Grid>
 
-      {/* Filters */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 2.5, borderRadius: '12px', bgcolor: '#f8fafc' }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center">
+      {/* Filters - Single Line */}
+      <Paper variant="outlined" sx={{ p: 1.5, pt: 2, pb: 1.5, mb: 2.5, borderRadius: '12px', bgcolor: '#ffffff', overflow: 'visible' }}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={1}
+          useFlexGap
+          sx={{
+            width: '100%',
+            flexWrap: 'wrap',
+            '& > *': { maxWidth: '100%' },
+          }}
+        >
+          {/* Quick Search */}
+          <TextField
+            size="small"
+            placeholder="Quick search logs, machine, product..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPage(0);
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                </InputAdornment>
+              ),
+              endAdornment: searchQuery ? (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setSearchQuery('')}>
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </InputAdornment>
+              ) : null,
+            }}
+            sx={{ flex: '1.4 1 180px', minWidth: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* From Date */}
           <TextField
             size="small"
             type="date"
@@ -280,8 +364,10 @@ export default function CncProductionReportPage() {
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
             InputLabelProps={{ shrink: true }}
-            sx={{ minWidth: 160 }}
+            sx={{ flex: '0 0 auto', width: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
           />
+
+          {/* To Date */}
           <TextField
             size="small"
             type="date"
@@ -289,9 +375,11 @@ export default function CncProductionReportPage() {
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
             InputLabelProps={{ shrink: true }}
-            sx={{ minWidth: 160 }}
+            sx={{ flex: '0 0 auto', width: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
           />
-          <FormControl size="small" sx={{ minWidth: 160 }}>
+
+          {/* Machine */}
+          <FormControl size="small" sx={{ flex: '1.2 1 150px', minWidth: 120, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
             <InputLabel>Machine</InputLabel>
             <Select value={machine} label="Machine" onChange={(e) => setMachine(e.target.value)}>
               <MenuItem value="All">All Machines</MenuItem>
@@ -301,7 +389,9 @@ export default function CncProductionReportPage() {
               <MenuItem value="CNC-04">CNC-04 (CNC Machine 3)</MenuItem>
             </Select>
           </FormControl>
-          <FormControl size="small" sx={{ minWidth: 140 }}>
+
+          {/* Shift */}
+          <FormControl size="small" sx={{ flex: '1 1 130px', minWidth: 110, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
             <InputLabel>Shift</InputLabel>
             <Select value={shift} label="Shift" onChange={(e) => setShift(e.target.value)}>
               <MenuItem value="All">All Shifts</MenuItem>
@@ -310,16 +400,26 @@ export default function CncProductionReportPage() {
               <MenuItem value="Night">Night</MenuItem>
             </Select>
           </FormControl>
+
+          {/* Clear Filters */}
           <Button
             size="small"
-            variant="text"
-            onClick={() => {
-              setFromDate('');
-              setToDate('');
-              setMachine('All');
-              setShift('All');
+            variant="outlined"
+            color="inherit"
+            startIcon={<RestartAltRounded fontSize="small" />}
+            onClick={handleResetFilters}
+            sx={{
+              flex: '0 0 auto',
+              minWidth: 110,
+              height: 38,
+              textTransform: 'none',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              borderRadius: '8px',
+              color: 'text.secondary',
+              borderColor: '#cbd5e1',
+              whiteSpace: 'nowrap',
             }}
-            sx={{ textTransform: 'none' }}
           >
             Clear Filters
           </Button>
@@ -327,7 +427,7 @@ export default function CncProductionReportPage() {
       </Paper>
 
       {/* Tabs */}
-      <Tabs value={tab} onChange={(_, v) => { setTab(v); setPage(0); }} sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
+      <Tabs variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile value={tab} onChange={(_, v) => { setTab(v); setPage(0); }} sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
         <Tab label="CNC Operations & Rejections" />
         <Tab label="External Grinding Tracking" />
         <Tab label="Machine & Shift Breakdown" />
@@ -355,7 +455,7 @@ export default function CncProductionReportPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {(cncData.rows || []).slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((r) => (
+              {filteredCncRows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((r) => (
                 <TableRow key={r.name} hover>
                   <TableCell>{r.production_date || '—'}</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>{r.name}</TableCell>
@@ -382,7 +482,7 @@ export default function CncProductionReportPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {(!cncData.rows || cncData.rows.length === 0) && (
+              {(!filteredCncRows || filteredCncRows.length === 0) && (
                 <TableRow>
                   <TableCell colSpan={12} align="center" sx={{ py: 3, color: 'text.secondary' }}>
                     No CNC operation logs recorded for the selected criteria.
@@ -403,7 +503,7 @@ export default function CncProductionReportPage() {
           </Table>
           <TablePagination
             component="div"
-            count={cncData.rows?.length || 0}
+            count={filteredCncRows?.length || 0}
             page={page}
             onPageChange={(_, p) => setPage(p)}
             rowsPerPage={rowsPerPage}

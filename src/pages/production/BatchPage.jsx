@@ -11,7 +11,7 @@ export default function BatchPage() {
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Typography variant="h5">Production batches</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Each stage consumes the stock the previous stage produced.</Typography>
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
+      <Tabs variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
         {LABELS.map((l) => <Tab key={l} label={l} />)}
       </Tabs>
       <CrudPage key={tab} config={STAGE_CONFIGS[tab]} embedded />

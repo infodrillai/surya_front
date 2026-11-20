@@ -12,7 +12,8 @@ createRoot(document.getElementById('root')).render(
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <QueryClientProvider client={queryClient}>
-        <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        {/* <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}> */}
+         <HashRouter>
           <App />
         </HashRouter>
       </QueryClientProvider>

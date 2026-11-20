@@ -1,3 +1,5 @@
+import { fmtMoney as formatChartMoney } from '../../../lib/format';
+import ReportChart, { groupChartRows } from '../../../components/ReportChart';
 import {
   Box,
   Button,
@@ -10,6 +12,7 @@ import {
   MenuItem,
   Paper,
   Select,
+  InputLabel,
   Skeleton,
   Stack,
   Switch,
@@ -35,6 +38,7 @@ import {
   PendingActionsOutlined,
   ReceiptLongOutlined,
   RefreshRounded,
+  RestartAltRounded,
   SearchRounded,
 } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
@@ -223,6 +227,16 @@ export default function PendingOrderAnalysisPage() {
     setPage(0);
   };
 
+  const handleResetFilters = () => {
+    setVendorFilter('ALL');
+    setProductFilter('ALL');
+    setFromDate('');
+    setToDate('');
+    setIncludeCompleted(false);
+    setSearchQuery('');
+    setPage(0);
+  };
+
   // Export to CSV
   const exportCsv = () => {
     if (!filteredRows.length) return;
@@ -321,132 +335,65 @@ export default function PendingOrderAnalysisPage() {
         </Stack>
       </Stack>
 
-      {/* Filter Section */}
-      <Paper variant="outlined" sx={{ p: 2.5, borderRadius: '12px', mb: 3, bgcolor: '#ffffff' }}>
-        {/* <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-          <FilterListRounded sx={{ color: palette.teal, fontSize: 20 }} />
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#0f172a' }}>
-            Report Filters
-          </Typography>
-          <Box sx={{ flexGrow: 1 }} />
-          <Button size="small" onClick={setThisMonth} sx={{ textTransform: 'none', fontSize: '0.78rem' }}>
-            This Month
-          </Button>
-          <Button size="small" onClick={setAllTime} sx={{ textTransform: 'none', fontSize: '0.78rem' }}>
-            All Time
-          </Button>
-        </Stack> */}
+      <Box sx={{ mb: 2.5 }}>
+        <ReportChart title="Pending purchase value by vendor" points={groupChartRows(filteredRows.filter((row) => Number(row.pending_qty) > 0), (row) => row.vendor_name, (row) => row.pending_value)} format={formatChartMoney} />
+      </Box>
 
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 2 }}>
-          {/* Filter 1: Vendor Wise */}
-          <FormControl size="small" fullWidth>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
-              Vendor Wise
-            </Typography>
-            <Select
-              value={vendorFilter}
-              onChange={(e) => {
-                setVendorFilter(e.target.value);
-                setPage(0);
-              }}
-              displayEmpty
-              sx={{ borderRadius: '8px' }}
-            >
-              {vendorOptions.map((v) => (
-                <MenuItem key={v.value} value={v.value}>
-                  {v.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+     
 
-          {/* Filter 2: Product Wise */}
-          <FormControl size="small" fullWidth>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
-              Product Wise
-            </Typography>
-            <Select
-              value={productFilter}
-              onChange={(e) => {
-                setProductFilter(e.target.value);
-                setPage(0);
-              }}
-              displayEmpty
-              sx={{ borderRadius: '8px' }}
-            >
-              {productOptions.map((p) => (
-                <MenuItem key={p.value} value={p.value}>
-                  {p.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          {/* Date: From Date */}
-          <Box>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5, display: 'block' }}>
-              From Date
-            </Typography>
-            <TextField
-              type="date"
-              size="small"
-              fullWidth
-              value={fromDate}
-              onChange={(e) => {
-                setFromDate(e.target.value);
-                setPage(0);
-              }}
-              slotProps={{ inputLabel: { shrink: true } }}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-            />
-          </Box>
-
-          {/* Date: To Date */}
-          <Box>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5, display: 'block' }}>
-              To Date
-            </Typography>
-            <TextField
-              type="date"
-              size="small"
-              fullWidth
-              value={toDate}
-              onChange={(e) => {
-                setToDate(e.target.value);
-                setPage(0);
-              }}
-              slotProps={{ inputLabel: { shrink: true } }}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-            />
-          </Box>
-        </Box>
-
-        <Divider sx={{ my: 2 }} />
-
-        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={2}>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={includeCompleted}
-                onChange={(e) => {
-                  setIncludeCompleted(e.target.checked);
-                  setPage(0);
-                }}
-                color="primary"
-                size="small"
-              />
-            }
-            label={
-              <Typography variant="body2" sx={{ fontWeight: 500, color: '#334155' }}>
-                Include Completed / Fully Received Items (Pending = 0)
-              </Typography>
-            }
-          />
-
+      {/* Summary KPI Cards */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 1.5, mb: 1 }}>
+        <StatCard
+          label="Total Ordered Qty"
+          value={fmtNum(summary.total_ordered_qty, 2)}
+          subtitle={`${summary.count} line items`}
+          icon={ReceiptLongOutlined}
+          iconBg="rgba(59, 130, 246, 0.1)"
+          iconColor="#2563eb"
+        />
+        <StatCard
+          label="Total Received Qty"
+          value={fmtNum(summary.total_received_qty, 2)}
+          subtitle="Confirmed Receipts"
+          icon={CheckCircleOutlineRounded}
+          iconBg="rgba(16, 185, 129, 0.1)"
+          iconColor="#059669"
+        />
+        <StatCard
+          label="Total Pending Qty"
+          value={fmtNum(summary.total_pending_qty, 2)}
+          subtitle="Remaining to receive"
+          icon={PendingActionsOutlined}
+          iconBg="rgba(245, 158, 11, 0.1)"
+          iconColor="#d97706"
+        />
+        <StatCard
+          label="Pending Order Value"
+          value={`₹${fmtNum(summary.total_pending_value, 2)}`}
+          subtitle="Value at purchase rate"
+          icon={Inventory2Outlined}
+          iconBg="rgba(14, 42, 47, 0.1)"
+          iconColor={palette.teal}
+        />
+      </Box>
+      
+      {/* Filter Section - Single Line */}
+      <Paper variant="outlined" sx={{ p: 1.5, pt: 2, pb: 1.5, borderRadius: '12px', mb: 2.5, bgcolor: '#ffffff', overflow: 'visible' }}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={1}
+          useFlexGap
+          sx={{
+            width: '100%',
+            flexWrap: 'wrap',
+            '& > *': { maxWidth: '100%' },
+          }}
+        >
           {/* Quick Search */}
           <TextField
             size="small"
-            placeholder="Search by ID, Vendor, Product..."
+            placeholder="Quick search table..."
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -468,46 +415,120 @@ export default function PendingOrderAnalysisPage() {
                 ) : null,
               },
             }}
-            sx={{ width: { xs: '100%', sm: 300 }, '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
+            sx={{ flex: '1.4 1 160px', minWidth: 130, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
           />
+
+          {/* Filter 1: Vendor Wise */}
+          <FormControl size="small" sx={{ flex: '1.1 1 130px', minWidth: 110, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
+            <InputLabel>Vendor</InputLabel>
+            <Select
+              label="Vendor"
+              value={vendorFilter}
+              onChange={(e) => {
+                setVendorFilter(e.target.value);
+                setPage(0);
+              }}
+            >
+              {vendorOptions.map((v) => (
+                <MenuItem key={v.value} value={v.value}>
+                  {v.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* Filter 2: Product Wise */}
+          <FormControl size="small" sx={{ flex: '1.1 1 130px', minWidth: 110, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
+            <InputLabel>Product</InputLabel>
+            <Select
+              label="Product"
+              value={productFilter}
+              onChange={(e) => {
+                setProductFilter(e.target.value);
+                setPage(0);
+              }}
+            >
+              {productOptions.map((p) => (
+                <MenuItem key={p.value} value={p.value}>
+                  {p.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* Date: From Date */}
+          <TextField
+            type="date"
+            label="From Date"
+            size="small"
+            value={fromDate}
+            onChange={(e) => {
+              setFromDate(e.target.value);
+              setPage(0);
+            }}
+            slotProps={{ inputLabel: { shrink: true } }}
+            sx={{ flex: '0 0 auto', width: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* Date: To Date */}
+          <TextField
+            type="date"
+            label="To Date"
+            size="small"
+            value={toDate}
+            onChange={(e) => {
+              setToDate(e.target.value);
+              setPage(0);
+            }}
+            slotProps={{ inputLabel: { shrink: true } }}
+            sx={{ flex: '0 0 auto', width: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* Include Completed */}
+          <FormControlLabel
+            sx={{ flex: '0 0 auto', m: 0 }}
+            control={
+              <Switch
+                checked={includeCompleted}
+                onChange={(e) => {
+                  setIncludeCompleted(e.target.checked);
+                  setPage(0);
+                }}
+                color="primary"
+                size="small"
+              />
+            }
+            label={
+              <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                Include Completed
+              </Typography>
+            }
+          />
+
+          {/* Clear Filters */}
+          <Button
+            size="small"
+            variant="outlined"
+            color="inherit"
+            startIcon={<RestartAltRounded fontSize="small" />}
+            onClick={handleResetFilters}
+            sx={{
+              flex: '0 0 auto',
+              minWidth: 105,
+              height: 38,
+              textTransform: 'none',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              borderRadius: '8px',
+              color: 'text.secondary',
+              borderColor: '#cbd5e1',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Clear Filters
+          </Button>
         </Stack>
       </Paper>
-
-      {/* Summary KPI Cards */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 2, mb: 3 }}>
-        {/* <StatCard
-          label="Total Ordered Qty"
-          value={fmtNum(summary.total_ordered_qty, 2)}
-          subtitle={`${summary.count} line items`}
-          icon={ReceiptLongOutlined}
-          iconBg="rgba(59, 130, 246, 0.1)"
-          iconColor="#2563eb"
-        /> */}
-        {/* <StatCard
-          label="Total Received Qty"
-          value={fmtNum(summary.total_received_qty, 2)}
-          subtitle="Confirmed Receipts"
-          icon={CheckCircleOutlineRounded}
-          iconBg="rgba(16, 185, 129, 0.1)"
-          iconColor="#059669"
-        /> */}
-        <StatCard
-          label="Total Pending Qty"
-          value={fmtNum(summary.total_pending_qty, 2)}
-          subtitle="Remaining to receive"
-          icon={PendingActionsOutlined}
-          iconBg="rgba(245, 158, 11, 0.1)"
-          iconColor="#d97706"
-        />
-        <StatCard
-          label="Pending Order Value"
-          value={`₹${fmtNum(summary.total_pending_value, 2)}`}
-          subtitle="Value at purchase rate"
-          icon={Inventory2Outlined}
-          iconBg="rgba(14, 42, 47, 0.1)"
-          iconColor={palette.teal}
-        />
-      </Box>
 
       {/* Table Section */}
       <Paper variant="outlined" sx={{ borderRadius: '12px', overflow: 'hidden', bgcolor: '#ffffff' }}>

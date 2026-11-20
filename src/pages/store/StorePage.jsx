@@ -235,7 +235,7 @@ export default function StorePage() {
         sx={{ mb: 3 }}
       >
         <Box>
-          <Stack direction="row" spacing={1.5} alignItems="center">
+          <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap sx={{ flexWrap: 'wrap' }}>
             <StorefrontOutlined sx={{ fontSize: 28, color: palette.teal }} />
             <Typography variant="h5" sx={{ fontWeight: 700, color: '#0f172a', letterSpacing: -0.3 }}>
               Store
@@ -256,7 +256,7 @@ export default function StorePage() {
           </Typography>
         </Box>
 
-        <Stack direction="row" spacing={1.5} alignItems="center">
+        <Stack direction="row" spacing={1.5} alignItems="center" useFlexGap sx={{ flexWrap: 'wrap' }}>
           <Button
             variant="contained"
             size="small"

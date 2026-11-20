@@ -1,9 +1,9 @@
 /**
  * Belt Batch Manufacturing Module Logic & Formulas
- * CL Surya ERP
+ * CLS Surya ERP
  */
-import { call, getDoc, getList } from '../api/client';
-import { db } from '../db/dexie';
+import { call, getDoc, getList } from '../../../api/client';
+import { db } from '../../../db/dexie';
 import {
   beltBatchCalc,
   calculateBeltComponents,
@@ -11,7 +11,7 @@ import {
   calculateRequiredRoll,
   getBeltDivisionFactor,
   n,
-} from './formulas';
+} from '../../../lib/formulas';
 
 export {
   beltBatchCalc,
@@ -727,9 +727,14 @@ export const beltStageRows = (stage) => async (values) => {
     if (!product) {
       try { product = await getDoc('Product', productName); } catch (_) {}
     }
-    try {
-      bom = await db.table('BOM').get(productName);
-    } catch (_) {}
+    try { bom = await db.table('Belt Production').get(productName); } catch (_) {}
+    if (!bom) {
+      try { bom = await getDoc('Belt Production', productName); } catch (_) {}
+    }
+    // Continue supporting recipes not yet copied by the backend migration.
+    if (!bom) {
+      try { bom = await db.table('BOM').get(productName); } catch (_) {}
+    }
     if (!bom) {
       try { bom = await getDoc('BOM', productName); } catch (_) {}
     }
@@ -834,7 +839,7 @@ export const beltStageRows = (stage) => async (values) => {
         })
       );
     } else if (stage === 4) {
-      const rows = bom.stage3_charges?.length ? bom.stage3_charges : bom.belt_p4_charges || [];
+      const rows = bom.stage4_charges?.length ? bom.stage4_charges : (bom.stage3_charges?.length ? bom.stage3_charges : bom.belt_p4_charges || []);
       stageCharges = rows.map((c) => {
         const rate = n(c.per_unit_price);
         return {

@@ -5,8 +5,11 @@ import {
   Button,
   Chip,
   Dialog,
+  DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
+  Paper,
   Stack,
   Typography,
   Table,
@@ -18,12 +21,21 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
-import { call, getDoc, getList, runAction } from '../api/client';
-import QuotationVersionBar, { openQuotation } from '../components/QuotationVersionBar';
-import { generateQuotationPDF } from '../lib/pdfUtils';
-import { todayISO } from '../lib/format';
-import { useAuthStore } from '../stores/authStore';
-import { db } from '../db/dexie';
+import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
+import ShareRoundedIcon from '@mui/icons-material/ShareRounded';
+import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
+import HistoryEduOutlinedIcon from '@mui/icons-material/HistoryEduOutlined';
+import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
+import TrendingUpRoundedIcon from '@mui/icons-material/TrendingUpRounded';
+import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
+import ShowChartRoundedIcon from '@mui/icons-material/ShowChartRounded';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import { call, getDoc, getList, runAction } from '../../api/client';
+import QuotationVersionBar, { openQuotation } from './QuotationVersionBar';
+import { generateQuotationPDF } from '../../lib/pdfUtils';
+import { todayISO } from '../../lib/format';
+import { useAuthStore } from '../../stores/authStore';
+import { db } from '../../db/dexie';
 
 const api = (name, args = {}) => call(`clssurya.utils.quotation_features.${name}`, args);
 const number = (name, label, extra = {}) => ({ name, label, type: 'number', ...extra });
@@ -43,41 +55,17 @@ export async function downloadQuotation(doc) {
   } catch (clientErr) {
     console.warn('Client PDF generation fallback to server:', clientErr);
     const file = await quotationPdf(doc);
-    const url = URL.createObjectURL(file);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    downloadPdfFile(file);
   }
 }
 
-async function shareQuotation(doc) {
-  try {
-    await generateQuotationPDF(doc);
-    const summaryText = `Quotation ${doc.name} for ${doc.customer || ''} - Total: ₹${doc.grand_total || doc.total_amount || 0}`;
-    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(summaryText + '\n\nQuotation PDF has been downloaded to your device.')}`;
-    window.open(waUrl, '_blank');
-  } catch (_) {
-    const file = await quotationPdf(doc);
-    if (navigator.canShare?.({ files: [file] })) {
-      await navigator.share({
-        files: [file],
-        title: `Quotation ${doc.name}`,
-        text: 'Please find the quotation attached.',
-      });
-    } else {
-      const url = URL.createObjectURL(file);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.name;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-      window.alert(
-        'The PDF has been downloaded. Open WhatsApp and attach this file to your customer conversation.'
-      );
-    }
-  }
+function downloadPdfFile(file) {
+  const url = URL.createObjectURL(file);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = file.name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 export function isQuotationExpired(doc) {
@@ -108,6 +96,31 @@ function QuotationPanel({ doc, values }) {
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [shareFile, setShareFile] = useState(null);
+  const [shareError, setShareError] = useState('');
+  const [sharing, setSharing] = useState(false);
+  const shareData = shareFile ? { files: [shareFile] } : null;
+  const canShareFile = !!(shareData && navigator.share && navigator.canShare?.(shareData));
+
+  const prepareShare = async () => {
+    setShareError('');
+    setShareFile(await quotationPdf(doc));
+  };
+
+  const sharePdf = async () => {
+    setSharing(true);
+    setShareError('');
+    try {
+      await navigator.share(shareData);
+      setShareFile(null);
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        setShareError('File sharing failed. Download the PDF and attach it in WhatsApp.');
+      }
+    } finally {
+      setSharing(false);
+    }
+  };
   const run = async (fn) => {
     setError('');
     setBusy(true);
@@ -122,199 +135,250 @@ function QuotationPanel({ doc, values }) {
   const effectiveStatus = getEffectiveQuotationStatus(doc);
   const expired = isQuotationExpired(doc);
 
-  return (
-    <Stack spacing={1}>
-      <QuotationVersionBar doc={doc} />
-      <Typography component="div" variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-        <span>Created by: {doc?.created_by_name || doc?.owner || creator || 'Current user'}</span>
-        <span>·</span>
-        <span>Currency: {values.currency || 'INR'}</span>
-        <span>·</span>
-        <span>Valid until: {doc?.valid_until || values.valid_until || 'Calculated when saved'}</span>
-        {doc?.status && (
-          <Chip
-            size="small"
-            label={effectiveStatus}
-            color={
-              effectiveStatus === 'Disapproved' || effectiveStatus === 'Rejected'
-                ? 'error'
-                : effectiveStatus === 'Approved'
-                  ? 'info'
-                  : 'default'
-            }
-            sx={{ height: 20, fontSize: 11, fontWeight: 600 }}
-          />
-        )}
-        {expired && (
-          <Typography component="span" variant="caption" sx={{ color: 'error.main', fontWeight: 700 }}>
-            (Expired - Disapproved)
-          </Typography>
-        )}
-      </Typography>
-      <Typography variant="caption">
-        References are in the selected currency, per product master unit. Quoted quantities and rates use the selected line unit. Enter master units per quoted unit for unit conversion. A percentage is undefined when the cost base is zero.
-      </Typography>
-      <Stack direction="row" gap={1} flexWrap="wrap">
-        {/* <Button
-          size="small"
-          variant="outlined"
-          disabled={busy}
-          onClick={() =>
-            run(async () => {
-              const prevList = await getList('Quotation', {
-                fields: [
-                  'name',
-                  'customer',
-                  'quotation_date',
-                  'valid_until',
-                  'validity_days',
-                  'grand_total',
-                  'status',
-                  'version',
-                ],
-                orderBy: 'creation desc',
-              });
-              setDetail({
-                title: values.customer
-                  ? `Previously Created Quotations · ${values.customer}`
-                  : 'Previously Created Quotations',
-                rows: (prevList || [])
-                  .filter((q) => !values.customer || q.customer === values.customer)
-                  .map((q) => ({
-                    quotation: q.name,
-                    customer: q.customer,
-                    date: q.quotation_date,
-                    valid_until: q.valid_until || '—',
-                    amount: q.grand_total,
-                    status: getEffectiveQuotationStatus(q),
-                    version: q.version ? `v${q.version}` : 'v1',
-                  })),
-              });
-            })
-          }
-        >
+  const uniqueProducts = [...new Set((values?.items || []).map((r) => r.product).filter(Boolean))];
 
-        </Button> */}
-        {doc?.name && (
-          <>
-            <Button disabled={busy} onClick={() => run(() => downloadQuotation(doc))}>
-              Download PDF
-            </Button>
-            <Button disabled={busy} onClick={() => run(() => shareQuotation(doc))}>
-              WhatsApp / Share PDF
-            </Button>
-            <Button
-              disabled={busy}
-              onClick={() =>
-                run(async () => {
-                  const recipient = window.prompt('Customer email address:');
-                  if (recipient && recipient.trim()) {
-                    try {
-                      await api('email_pdf', { name: doc.name, recipient: recipient.trim() });
-                      window.alert(`Quotation ${doc.name} email sent/queued to ${recipient.trim()}.`);
-                    } catch (err) {
-                      const msg = err?.message || String(err);
-                      if (msg.includes('Email Account') || msg.includes('OutgoingEmailError')) {
-                        window.alert('Outgoing Email Account is not yet configured in Frappe.\nPlease setup a default outgoing Email Account from Tools / Settings > Email Account in Frappe Desk.');
-                      } else {
-                        window.alert(`Could not send email: ${msg}`);
-                      }
-                    }
-                  }
-                })
-              }
-            >
-              Email PDF
-            </Button>
-            <Button
-              disabled={busy}
-              onClick={() =>
-                run(async () =>
-                  setDetail({
-                    title: 'Generated PDFs',
-                    rows: await api('pdf_history', { name: doc.name }),
-                  })
-                )
-              }
-            >
-              PDF history
-            </Button>
-            <Button
-              disabled={busy}
-              onClick={() =>
-                run(async () =>
-                  setDetail({
-                    title: 'Quotation activity',
-                    rows: (await api('activity', { name: doc.name })).map((log) => {
-                      let data = {};
-                      try {
-                        data = JSON.parse(log.data);
-                      } catch { }
-                      return {
-                        user: log.owner,
-                        date: log.creation,
-                        changes:
-                          (data.changed || [])
-                            .map(
-                              (change) =>
-                                `${change[0].replaceAll('_', ' ')}: ${change[1] ?? 'empty'} → ${change[2] ?? 'empty'}`
-                            )
-                            .join('; ') || 'Quotation items updated',
-                      };
-                    }),
-                  })
-                )
-              }
-            >
-              Activity
-            </Button>
-            {['Draft', 'Sent', 'Approved'].includes(effectiveStatus) && (
+  return (
+    <>
+      <Paper
+      variant="outlined"
+      sx={{
+        p: 1.5,
+        mb: 1.5,
+        borderRadius: '12px',
+        bgcolor: '#ffffff',
+        borderColor: '#e2e8f0',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+      }}
+    >
+      <Stack spacing={1.25}>
+        {/* Row 1: Version, Revise, Metadata, Navigation */}
+        <QuotationVersionBar doc={doc} values={values} />
+
+        <Divider sx={{ borderColor: '#f1f5f9' }} />
+
+        {/* Row 2: Action Buttons */}
+        <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
+          {doc?.name && (
+            <>
               <Button
-                color="error"
+                size="small"
                 variant="outlined"
                 disabled={busy}
+                startIcon={<DownloadRoundedIcon sx={{ fontSize: 16 }} />}
+                onClick={() => run(() => downloadQuotation(doc))}
+                sx={{
+                  textTransform: 'none',
+                  borderRadius: '7px',
+                  height: 28,
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: '#0284c7',
+                  borderColor: '#bae6fd',
+                  bgcolor: '#f0f9ff',
+                  '&:hover': { bgcolor: '#e0f2fe', borderColor: '#7dd3fc' },
+                }}
+              >
+                Download PDF
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                disabled={busy}
+                startIcon={<ShareRoundedIcon sx={{ fontSize: 16 }} />}
+                onClick={() => run(prepareShare)}
+                sx={{
+                  textTransform: 'none',
+                  borderRadius: '7px',
+                  height: 28,
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: '#16a34a',
+                  borderColor: '#bbf7d0',
+                  bgcolor: '#f0fdf4',
+                  '&:hover': { bgcolor: '#dcfce7', borderColor: '#86efac' },
+                }}
+              >
+                WhatsApp / Share PDF
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                disabled={busy}
+                startIcon={<EmailOutlinedIcon sx={{ fontSize: 16 }} />}
                 onClick={() =>
                   run(async () => {
-                    if (
-                      !window.confirm(
-                        `Reject quotation ${doc.name}? Rejection status will be maintained.`
-                      )
-                    )
-                      return;
-                    await runAction('Quotation', doc.name, 'reject');
-                    window.location.reload();
+                    const recipient = window.prompt('Customer email address:');
+                    if (recipient && recipient.trim()) {
+                      try {
+                        await api('email_pdf', { name: doc.name, recipient: recipient.trim() });
+                        window.alert(`Quotation ${doc.name} email sent/queued to ${recipient.trim()}.`);
+                      } catch (err) {
+                        const msg = err?.message || String(err);
+                        if (msg.includes('Email Account') || msg.includes('OutgoingEmailError')) {
+                          window.alert('Outgoing Email Account is not yet configured in Frappe.\nPlease setup a default outgoing Email Account from Tools / Settings > Email Account in Frappe Desk.');
+                        } else {
+                          window.alert(`Could not send email: ${msg}`);
+                        }
+                      }
+                    }
                   })
                 }
+                sx={{
+                  textTransform: 'none',
+                  borderRadius: '7px',
+                  height: 28,
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: '#475569',
+                  borderColor: '#cbd5e1',
+                  bgcolor: '#ffffff',
+                  '&:hover': { bgcolor: '#f8fafc', borderColor: '#94a3b8' },
+                }}
               >
-                Reject Quotation
+                Email PDF
               </Button>
-            )}
-          </>
-        )}
-        <Button
-          disabled={busy}
-          onClick={() =>
-            run(async () =>
-              setDetail({
-                title: 'My sales performance',
-                rows: await api('performance'),
-              })
-            )
-          }
-        >
-          Sales performance
-        </Button>
-        {(values.items || [])
-          .filter((r) => r.product)
-          .map((r, i) => (
+              <Button
+                size="small"
+                variant="outlined"
+                disabled={busy}
+                startIcon={<HistoryEduOutlinedIcon sx={{ fontSize: 16 }} />}
+                onClick={() =>
+                  run(async () =>
+                    setDetail({
+                      title: 'Generated PDFs',
+                      rows: await api('pdf_history', { name: doc.name }),
+                    })
+                  )
+                }
+                sx={{
+                  textTransform: 'none',
+                  borderRadius: '7px',
+                  height: 28,
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: '#475569',
+                  borderColor: '#cbd5e1',
+                  bgcolor: '#ffffff',
+                  '&:hover': { bgcolor: '#f8fafc', borderColor: '#94a3b8' },
+                }}
+              >
+                PDF history
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                disabled={busy}
+                startIcon={<HistoryRoundedIcon sx={{ fontSize: 16 }} />}
+                onClick={() =>
+                  run(async () =>
+                    setDetail({
+                      title: 'Quotation activity',
+                      rows: (await api('activity', { name: doc.name })).map((log) => {
+                        let data = {};
+                        try {
+                          data = JSON.parse(log.data);
+                        } catch { }
+                        return {
+                          user: log.owner,
+                          date: log.creation,
+                          changes:
+                            (data.changed || [])
+                              .map(
+                                (change) =>
+                                  `${change[0].replaceAll('_', ' ')}: ${change[1] ?? 'empty'} → ${change[2] ?? 'empty'}`
+                              )
+                              .join('; ') || 'Quotation items updated',
+                        };
+                      }),
+                    })
+                  )
+                }
+                sx={{
+                  textTransform: 'none',
+                  borderRadius: '7px',
+                  height: 28,
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: '#475569',
+                  borderColor: '#cbd5e1',
+                  bgcolor: '#ffffff',
+                  '&:hover': { bgcolor: '#f8fafc', borderColor: '#94a3b8' },
+                }}
+              >
+                Activity
+              </Button>
+              {['Draft', 'Sent', 'Approved'].includes(effectiveStatus) && (
+                <Button
+                  size="small"
+                  color="error"
+                  variant="outlined"
+                  disabled={busy}
+                  startIcon={<CancelOutlinedIcon sx={{ fontSize: 16 }} />}
+                  onClick={() =>
+                    run(async () => {
+                      if (
+                        !window.confirm(
+                          `Reject quotation ${doc.name}? Rejection status will be maintained.`
+                        )
+                      )
+                        return;
+                      await runAction('Quotation', doc.name, 'reject');
+                      window.location.reload();
+                    })
+                  }
+                  sx={{
+                    textTransform: 'none',
+                    borderRadius: '7px',
+                    height: 28,
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                  }}
+                >
+                  Reject Quotation
+                </Button>
+              )}
+            </>
+          )}
+          <Button
+            size="small"
+            variant="outlined"
+            disabled={busy}
+            startIcon={<TrendingUpRoundedIcon sx={{ fontSize: 16 }} />}
+            onClick={() =>
+              run(async () =>
+                setDetail({
+                  title: 'My sales performance',
+                  rows: await api('performance'),
+                })
+              )
+            }
+            sx={{
+              textTransform: 'none',
+              borderRadius: '7px',
+              height: 28,
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              color: '#475569',
+              borderColor: '#cbd5e1',
+              bgcolor: '#ffffff',
+              '&:hover': { bgcolor: '#f8fafc', borderColor: '#94a3b8' },
+            }}
+          >
+            Sales performance
+          </Button>
+
+          {uniqueProducts.map((prod) => (
             <Button
-              key={`${r.product}-${i}`}
+              key={prod}
+              size="small"
+              variant="outlined"
               disabled={busy}
+              startIcon={<ShowChartRoundedIcon sx={{ fontSize: 16 }} />}
               onClick={() =>
                 run(async () => {
-                  const info = await api('product_references', { product: r.product });
+                  const info = await api('product_references', { product: prod });
                   setDetail({
-                    title: `${r.product} · History (INR / master unit)`,
+                    title: `${prod} · History (INR / master unit)`,
                     rows: [
                       ...info.monthly_prices.map((p) => ({
                         month: p.month,
@@ -326,11 +390,60 @@ function QuotationPanel({ doc, values }) {
                   });
                 })
               }
+              sx={{
+                textTransform: 'none',
+                borderRadius: '7px',
+                height: 28,
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                color: '#0d9488',
+                borderColor: '#99f6e4',
+                bgcolor: '#f0fdfa',
+                '&:hover': { bgcolor: '#ccfbf1', borderColor: '#5eead4' },
+              }}
             >
-              Price history: {r.product}
+              Price history: {prod}
             </Button>
           ))}
+        </Stack>
+
+        {/* Row 3: Info disclaimer note */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.75,
+            bgcolor: '#f8fafc',
+            px: 1.25,
+            py: 0.6,
+            borderRadius: '6px',
+            border: '1px solid #f1f5f9',
+          }}
+        >
+          <InfoOutlinedIcon sx={{ fontSize: 14, color: '#94a3b8', flexShrink: 0 }} />
+          <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.72rem', lineHeight: 1.3 }}>
+            References are in {values?.currency || 'INR'} per product master unit. Quoted quantities and rates use the selected line unit. Enter master units per quoted unit for unit conversion.
+          </Typography>
+        </Box>
       </Stack>
+    </Paper>
+      <Dialog open={!!shareFile} onClose={() => !sharing && setShareFile(null)} aria-labelledby="share-quotation-title">
+        <DialogTitle id="share-quotation-title">Share quotation PDF</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ overflowWrap: 'anywhere' }}>{shareFile?.name}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            {canShareFile
+              ? 'Select WhatsApp in the share menu if available.'
+              : 'Download the PDF and attach it as a document in WhatsApp.'}
+          </Typography>
+          {shareError && <Alert severity="warning" sx={{ mt: 1 }}>{shareError}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={sharing} onClick={() => setShareFile(null)}>Close</Button>
+          <Button disabled={sharing} onClick={() => downloadPdfFile(shareFile)}>Download PDF</Button>
+          {canShareFile && <Button variant="contained" disabled={sharing} onClick={sharePdf}>Share PDF</Button>}
+        </DialogActions>
+      </Dialog>
       {error && <Alert severity="error">{error}</Alert>}
       <Dialog open={!!detail} onClose={() => setDetail(null)} fullWidth maxWidth="md">
         <DialogTitle>{detail?.title}</DialogTitle>
@@ -384,7 +497,7 @@ function QuotationPanel({ doc, values }) {
             ))}
         </DialogContent>
       </Dialog>
-    </Stack>
+    </>
   );
 }
 

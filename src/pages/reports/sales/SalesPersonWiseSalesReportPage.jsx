@@ -1,3 +1,5 @@
+import { fmtMoney as formatChartMoney } from '../../../lib/format';
+import ReportChart, { groupChartRows } from '../../../components/ReportChart';
 import React, { useMemo, useState } from 'react';
 import {
   Box,
@@ -84,7 +86,7 @@ function StatCard({ label, value, subtitle, icon: Icon, iconBg, iconColor }) {
         >
           {label}
         </Typography>
-        <Typography variant="h6" sx={{ fontWeight: 700, mt: 0.25, color: '#0f172a', lineHeight: 1.2 }}>
+        <Typography component="div" variant="h6" sx={{ fontWeight: 700, mt: 0.25, color: '#0f172a', lineHeight: 1.2 }}>
           {value}
         </Typography>
         {subtitle && (
@@ -481,6 +483,9 @@ export default function SalesPersonWiseSalesReportPage() {
         </Stack>
       </Stack>
 
+<Box sx={{ mb: 2.5 }}>
+        <ReportChart title="Sales order value by salesperson" points={groupChartRows(filteredRows, (row) => row.sales_person_name || row.employee_id, (row) => row.total_sales_amount)} format={formatChartMoney} />
+      </Box>
       {/* Summary Cards */}
       <Box
         sx={{
@@ -563,21 +568,45 @@ export default function SalesPersonWiseSalesReportPage() {
         />
       </Box>
 
-      {/* Filter Toolbar */}
-      <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5, borderRadius: '10px', bgcolor: '#ffffff' }}>
-        <Box
+      {/* Filter Toolbar - Single Line */}
+      <Paper variant="outlined" sx={{ p: 1.5, pt: 2, pb: 1.5, mb: 2, borderRadius: '12px', bgcolor: '#ffffff', overflow: 'visible' }}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={1}
+          useFlexGap
           sx={{
-            display: 'grid',
-            gridTemplateColumns: {
-              xs: '1fr',
-              sm: 'repeat(2, 1fr)',
-              md: 'repeat(4, 1fr)',
-              lg: isAdmin ? 'repeat(7, 1fr)' : 'repeat(6, 1fr)',
-            },
-            gap: 1,
-            mb: 1,
+            width: '100%',
+            flexWrap: 'wrap',
+            '& > *': { maxWidth: '100%' },
           }}
         >
+          {/* Quick Search */}
+          <TextField
+            size="small"
+            placeholder="Quick search sales person..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPage(0);
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchRounded sx={{ color: 'text.secondary', fontSize: 18 }} />
+                </InputAdornment>
+              ),
+              endAdornment: searchQuery && (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setSearchQuery('')}>
+                    <CloseRounded sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+            sx={{ flex: '1.2 1 130px', minWidth: 110, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
           {/* From Date */}
           <TextField
             label="From Date"
@@ -589,7 +618,7 @@ export default function SalesPersonWiseSalesReportPage() {
               setPage(0);
             }}
             InputLabelProps={{ shrink: true }}
-            fullWidth
+            sx={{ flex: '0 0 auto', width: 135, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
           />
 
           {/* To Date */}
@@ -603,12 +632,12 @@ export default function SalesPersonWiseSalesReportPage() {
               setPage(0);
             }}
             InputLabelProps={{ shrink: true }}
-            fullWidth
+            sx={{ flex: '0 0 auto', width: 135, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
           />
 
           {/* Sales Person (Admin only) */}
           {isAdmin && (
-            <FormControl size="small" fullWidth>
+            <FormControl size="small" sx={{ flex: '1 1 110px', minWidth: 95, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
               <InputLabel>Sales Person</InputLabel>
               <Select
                 label="Sales Person"
@@ -628,7 +657,7 @@ export default function SalesPersonWiseSalesReportPage() {
           )}
 
           {/* Customer */}
-          <FormControl size="small" fullWidth>
+          <FormControl size="small" sx={{ flex: '1 1 110px', minWidth: 95, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
             <InputLabel>Customer</InputLabel>
             <Select
               label="Customer"
@@ -647,7 +676,7 @@ export default function SalesPersonWiseSalesReportPage() {
           </FormControl>
 
           {/* Product Code */}
-          <FormControl size="small" fullWidth>
+          <FormControl size="small" sx={{ flex: '0.9 1 100px', minWidth: 90, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
             <InputLabel>Product Code</InputLabel>
             <Select
               label="Product Code"
@@ -675,11 +704,11 @@ export default function SalesPersonWiseSalesReportPage() {
               setProductNameFilter(e.target.value);
               setPage(0);
             }}
-            fullWidth
+            sx={{ flex: '1 1 110px', minWidth: 95, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
           />
 
           {/* Sales Order Status */}
-          <FormControl size="small" fullWidth>
+          <FormControl size="small" sx={{ flex: '0.9 1 100px', minWidth: 90, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
             <InputLabel>Order Status</InputLabel>
             <Select
               label="Order Status"
@@ -696,41 +725,26 @@ export default function SalesPersonWiseSalesReportPage() {
               ))}
             </Select>
           </FormControl>
-        </Box>
 
-        {/* Search & Reset Bar */}
-        <Stack direction="row" spacing={1} alignItems="center">
-          <TextField
-            size="small"
-            placeholder="Quick search sales person, ID, or email..."
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setPage(0);
-            }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchRounded sx={{ color: 'text.secondary', fontSize: 18 }} />
-                </InputAdornment>
-              ),
-              endAdornment: searchQuery && (
-                <InputAdornment position="end">
-                  <IconButton size="small" onClick={() => setSearchQuery('')}>
-                    <CloseRounded sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </InputAdornment>
-              ),
-            }}
-            sx={{ flex: 1 }}
-          />
-
+          {/* Clear Filters */}
           <Button
-            variant="text"
             size="small"
+            variant="outlined"
+            color="inherit"
             startIcon={<RestartAltRounded sx={{ fontSize: 16 }} />}
             onClick={handleResetFilters}
-            sx={{ color: 'text.secondary', textTransform: 'none', fontWeight: 600, fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+            sx={{
+              flex: '0 0 auto',
+              minWidth: 105,
+              height: 38,
+              textTransform: 'none',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              borderRadius: '8px',
+              color: 'text.secondary',
+              borderColor: '#cbd5e1',
+              whiteSpace: 'nowrap',
+            }}
           >
             Clear Filters
           </Button>

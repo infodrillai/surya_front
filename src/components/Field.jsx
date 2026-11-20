@@ -277,7 +277,13 @@ function ServerLink({ f, rf, error, disabled, rowPath, setValue, getValues }) {
   return <LinkInput {...{ f, rf, error, disabled, options, labels, rowPath, setValue, getValues }} />;
 }
 
+function fixedDecimal(value, digits) {
+  if (value == null || value === '' || !Number.isFinite(Number(value))) return value ?? '';
+  return Number(value).toFixed(digits);
+}
+
 export default function Field({ f, name, control, disabled, rowPath, setValue, getValues }) {
+  const [focused, setFocused] = useState(false);
   return (
     <Controller
       name={name}
@@ -296,7 +302,9 @@ export default function Field({ f, name, control, disabled, rowPath, setValue, g
           return (
             <TextField
               label={f.label}
-              value={num ? fmtNum(rf.value, f.dp ?? (f.type === 'currency' ? 2 : 3)) : rf.value ?? ''}
+              value={num
+                ? (f.fixedDp == null ? fmtNum(rf.value, f.dp ?? (f.type === 'currency' ? 2 : 3)) : fixedDecimal(rf.value, f.fixedDp))
+                : rf.value ?? ''}
               disabled
               size="small"
               sx={{
@@ -354,7 +362,7 @@ export default function Field({ f, name, control, disabled, rowPath, setValue, g
         return (
           <TextField
             {...rf}
-            value={displayVal}
+            value={isNum && f.fixedDp != null && !focused ? fixedDecimal(displayVal, f.fixedDp) : displayVal}
             label={label}
             disabled={off}
             error={!!error}
@@ -383,7 +391,14 @@ export default function Field({ f, name, control, disabled, rowPath, setValue, g
               } : undefined,
             }}
             onChange={handleFieldChange}
-            onFocus={handleFocusOrClick}
+            onFocus={(event) => {
+              if (f.fixedDp != null) setFocused(true);
+              handleFocusOrClick(event);
+            }}
+            onBlur={() => {
+              if (f.fixedDp != null) setFocused(false);
+              rf.onBlur();
+            }}
             onClick={handleFocusOrClick}
           >
             {f.type === 'select' &&

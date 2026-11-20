@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { enhanceQuotation, isQuotationExpired, getEffectiveQuotationStatus } from './quotationFeatures';
-import { buildDefaults, buildSchema } from './schema';
+import { buildDefaults, buildSchema } from '../../lib/schema';
 
 const config = { fields: [], tables: [{ fields: ['product', 'production_cost', 'uom', 'rate', 'pr', 'quantity'].map(name => ({ name })) }], rowActions: [{ key: 'download_pdf' }], columns: [] };
 enhanceQuotation(config);

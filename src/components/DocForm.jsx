@@ -147,7 +147,8 @@ export default function DocForm({ config, doc, open, onClose }) {
 
   const afterChange = async () => {
     await qc.invalidateQueries();
-    if (config.master) await reloadMasters([config.doctype, ...(config.companion ? [config.companion.doctype] : [])]);
+    const companionDoctypes = config.companion?.doctypes || (config.companion?.doctype ? [config.companion.doctype] : []);
+    if (config.master) await reloadMasters([config.doctype, ...companionDoctypes]);
   };
 
   const save = useMutation({
@@ -281,16 +282,16 @@ export default function DocForm({ config, doc, open, onClose }) {
           width: '98vw',
           maxWidth: '1850px',
           m: quotation ? 0.5 : 1,
-          height: quotation ? 'calc(100vh - 16px)' : undefined,
-          maxHeight: quotation ? 'calc(100vh - 16px)' : '96vh',
+          height: quotation ? 'calc(100dvh - 16px)' : undefined,
+          maxHeight: quotation ? 'calc(100dvh - 16px)' : '96dvh',
           display: quotation ? 'flex' : undefined,
           flexDirection: quotation ? 'column' : undefined,
           overflow: quotation ? 'hidden' : undefined,
         },
       } : undefined}
     >
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: quotation ? 0.75 : 1.5, flexShrink: 0 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1 }}>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, px: 2, py: quotation ? 0.75 : 1.5, flexShrink: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, flex: 1, minWidth: 0 }}>
           <span>{isNew ? `New ${config.title}` : `${config.title} ${doc.name}`}</span>
           {config.completable && !isNew && <Chip size="small" color={doc.is_completed ? 'success' : 'default'} label={doc.is_completed ? 'Completed' : 'Draft'} />}
           {(() => { const s = config.getEffectiveStatus ? config.getEffectiveStatus(doc) : doc?.status; return s ? <Chip size="small" variant="outlined" color={s === "Disapproved" || s === "Rejected" ? "error" : "default"} label={s} /> : null; })()}
@@ -332,6 +333,9 @@ export default function DocForm({ config, doc, open, onClose }) {
                 lg: isWideForm ? 'repeat(5, 1fr)' : 'repeat(3, 1fr)',
               },
             flexShrink: 0,
+            ...(config.mainFieldFontSize && {
+              '& .MuiInputBase-root, & .MuiInputLabel-root': { fontSize: config.mainFieldFontSize },
+            }),
           }}>
             {main.map((f) => (
               <Box key={f.name} sx={{ gridColumn: (f.type === 'textarea' || f.name === 'remarks' || f.name === 'sales_person') ? (quotation ? '1 / -1' : (isWideForm ? 'span 2' : '1 / -1')) : undefined }}>

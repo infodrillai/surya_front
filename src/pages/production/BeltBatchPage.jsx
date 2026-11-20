@@ -1,7 +1,7 @@
 import { Box, Button, Stack, Tab, Tabs, Typography } from '@mui/material';
 import { useState } from 'react';
 import CrudPage from '../../components/CrudPage';
-import { BELT_STAGE_CONFIGS } from '../../config/beltBatchResource';
+import { BELT_STAGE_CONFIGS } from './belt/beltBatchResource';
 
 const LABELS = [
   'Stage 1 (Roll Creation)',
@@ -22,6 +22,9 @@ export default function BeltBatchPage() {
         Each stage consumes the stock the previous stage produced.
       </Typography>
       <Tabs
+        variant="scrollable"
+        scrollButtons="auto"
+        allowScrollButtonsMobile
         value={tab}
         onChange={(_, v) => setTab(v)}
         sx={{ mb: 2.5, borderBottom: 1, borderColor: 'divider' }}

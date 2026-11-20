@@ -12,7 +12,7 @@ import {
 } from '@mui/material';
 import LayersOutlinedIcon from '@mui/icons-material/LayersOutlined';
 
-import { getProductBeltProcesses } from '../lib/beltBatchLogic';
+import { getProductBeltProcesses } from './beltBatchLogic';
 
 export default function BeltBatchHeader({ doc, values, onAdvanceProcess, onOpenCalculator }) {
   const totalProcesses = Number(values?.total_processes || doc?.total_processes || 4);

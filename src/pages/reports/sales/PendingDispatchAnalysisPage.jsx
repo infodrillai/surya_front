@@ -1,3 +1,4 @@
+import ReportChart, { groupChartRows } from '../../../components/ReportChart';
 import React, { useMemo, useState } from 'react';
 import {
   Box,
@@ -11,6 +12,7 @@ import {
   MenuItem,
   Paper,
   Select,
+  InputLabel,
   Skeleton,
   Stack,
   Switch,
@@ -389,252 +391,17 @@ export default function PendingDispatchAnalysisPage() {
         </Stack>
       </Stack>
 
-      {/* Filter Section */}
-      <Paper variant="outlined" sx={{ p: 2.5, borderRadius: '12px', mb: 3, bgcolor: '#ffffff' }}>
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-          <FilterListRounded sx={{ color: palette.teal, fontSize: 20 }} />
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#0f172a' }}>
-            Report Filters
-          </Typography>
-          <Box sx={{ flexGrow: 1 }} />
-          <Button
-            size="small"
-            startIcon={<RestartAltRounded />}
-            onClick={handleResetFilters}
-            sx={{ textTransform: 'none', fontSize: '0.78rem', color: 'text.secondary' }}
-          >
-            Reset All
-          </Button>
-        </Stack>
-
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: {
-              xs: '1fr',
-              sm: 'repeat(2, 1fr)',
-              md: 'repeat(3, 1fr)',
-              lg: 'repeat(5, 1fr)',
-            },
-            gap: 2,
-          }}
-        >
-          {/* 1. From Date */}
-          <Box>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5, display: 'block' }}>
-              From Date
-            </Typography>
-            <TextField
-              type="date"
-              size="small"
-              fullWidth
-              value={fromDate}
-              onChange={(e) => {
-                setFromDate(e.target.value);
-                setPage(0);
-              }}
-              slotProps={{ inputLabel: { shrink: true } }}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-            />
-          </Box>
-
-          {/* 2. To Date */}
-          <Box>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5, display: 'block' }}>
-              To Date
-            </Typography>
-            <TextField
-              type="date"
-              size="small"
-              fullWidth
-              value={toDate}
-              onChange={(e) => {
-                setToDate(e.target.value);
-                setPage(0);
-              }}
-              slotProps={{ inputLabel: { shrink: true } }}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-            />
-          </Box>
-
-          {/* 3. Customer */}
-          <FormControl size="small" fullWidth>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
-              Customer
-            </Typography>
-            <Select
-              value={customerFilter}
-              onChange={(e) => {
-                setCustomerFilter(e.target.value);
-                setPage(0);
-              }}
-              displayEmpty
-              sx={{ borderRadius: '8px' }}
-            >
-              {customerOptions.map((c) => (
-                <MenuItem key={c.value} value={c.value}>
-                  {c.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-
-
-          {/* 5. Product Name */}
-          <Box>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5, display: 'block' }}>
-              Product Name
-            </Typography>
-            <TextField
-              size="small"
-              fullWidth
-              placeholder="Search product name..."
-              value={productNameFilter}
-              onChange={(e) => {
-                setProductNameFilter(e.target.value);
-                setPage(0);
-              }}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-            />
-          </Box>
-
-          {/* 6. Product Code */}
-          <FormControl size="small" fullWidth>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
-              Product Code
-            </Typography>
-            <Select
-              value={productCodeFilter}
-              onChange={(e) => {
-                setProductCodeFilter(e.target.value);
-                setPage(0);
-              }}
-              displayEmpty
-              sx={{ borderRadius: '8px' }}
-            >
-              {productOptions.map((p) => (
-                <MenuItem key={p.value} value={p.value}>
-                  {p.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-
-          {/* 8. Sales Person */}
-          <FormControl size="small" fullWidth>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
-              Sales Person
-            </Typography>
-            <Select
-              value={salesPersonFilter}
-              onChange={(e) => {
-                setSalesPersonFilter(e.target.value);
-                setPage(0);
-              }}
-              displayEmpty
-              sx={{ borderRadius: '8px' }}
-            >
-              {salesPersonOptions.map((sp) => (
-                <MenuItem key={sp.value} value={sp.value}>
-                  {sp.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          {/* 9. Order Status */}
-          <FormControl size="small" fullWidth>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
-              Order Status
-            </Typography>
-            <Select
-              value={orderStatusFilter}
-              onChange={(e) => {
-                setOrderStatusFilter(e.target.value);
-                setPage(0);
-              }}
-              displayEmpty
-              sx={{ borderRadius: '8px' }}
-            >
-              {orderStatusOptions.map((os) => (
-                <MenuItem key={os.value} value={os.value}>
-                  {os.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          {/* Quick Search */}
-          <Box>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5, display: 'block' }}>
-              Quick Table Search
-            </Typography>
-            <TextField
-              size="small"
-              fullWidth
-              placeholder="Search table rows..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setPage(0);
-              }}
-              slotProps={{
-                input: {
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchRounded fontSize="small" sx={{ color: 'text.secondary' }} />
-                    </InputAdornment>
-                  ),
-                  endAdornment: searchQuery ? (
-                    <InputAdornment position="end">
-                      <IconButton size="small" onClick={() => setSearchQuery('')}>
-                        <CloseRounded fontSize="small" />
-                      </IconButton>
-                    </InputAdornment>
-                  ) : null,
-                },
-              }}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: '8px' } }}
-            />
-          </Box>
-        </Box>
-
-        <Divider sx={{ my: 2 }} />
-
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
-          <FormControlLabel
-            control={
-              <Switch
-                checked={includeCompleted}
-                onChange={(e) => {
-                  setIncludeCompleted(e.target.checked);
-                  setPage(0);
-                }}
-                color="primary"
-                size="small"
-              />
-            }
-            label={
-              <Typography variant="body2" sx={{ fontWeight: 500, color: '#334155' }}>
-                Include Completed / Fully Dispatched Orders (Pending = 0)
-              </Typography>
-            }
-          />
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            Showing <b>{filteredRows.length}</b> line item(s)
-          </Typography>
-        </Stack>
-      </Paper>
+      <Box sx={{ mb: 2.5 }}>
+        <ReportChart title="Orders with pending dispatch by customer" points={groupChartRows([...new Map(filteredRows.filter((row) => Number(row.pending_qty) > 0).map((row) => [row.sales_order_id, row])).values()], (row) => row.customer_name)} />
+      </Box>
 
       {/* Summary KPI Cards */}
       <Box
         sx={{
           display: 'grid',
           gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)', lg: 'repeat(5, 1fr)' },
-          gap: 2,
-          mb: 3,
+          gap: 1,
+          mb: 2,
         }}
       >
         <StatCard
@@ -679,6 +446,211 @@ export default function PendingDispatchAnalysisPage() {
         />
       </Box>
 
+ {/* Filter Section - Single Line */}
+      <Paper variant="outlined" sx={{ p: 1.5, pt: 2, pb: 1.5, borderRadius: '12px', mb: 2.5, bgcolor: '#ffffff', overflow: 'visible' }}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={1}
+          useFlexGap
+          sx={{
+            width: '100%',
+            flexWrap: 'wrap',
+            '& > *': { maxWidth: '100%' },
+          }}
+        >
+          {/* Quick Search */}
+          <TextField
+            size="small"
+            placeholder="Quick search table..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPage(0);
+            }}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchRounded fontSize="small" sx={{ color: 'text.secondary' }} />
+                  </InputAdornment>
+                ),
+                endAdornment: searchQuery ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setSearchQuery('')}>
+                      <CloseRounded fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+              },
+            }}
+            sx={{ flex: '1.2 1 130px', minWidth: 110, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* 1. From Date */}
+          <TextField
+            type="date"
+            label="From Date"
+            size="small"
+            value={fromDate}
+            onChange={(e) => {
+              setFromDate(e.target.value);
+              setPage(0);
+            }}
+            slotProps={{ inputLabel: { shrink: true } }}
+            sx={{ flex: '0 0 auto', width: 135, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* 2. To Date */}
+          <TextField
+            type="date"
+            label="To Date"
+            size="small"
+            value={toDate}
+            onChange={(e) => {
+              setToDate(e.target.value);
+              setPage(0);
+            }}
+            slotProps={{ inputLabel: { shrink: true } }}
+            sx={{ flex: '0 0 auto', width: 135, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* 3. Customer */}
+          <FormControl size="small" sx={{ flex: '1 1 110px', minWidth: 100, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
+            <InputLabel>Customer</InputLabel>
+            <Select
+              label="Customer"
+              value={customerFilter}
+              onChange={(e) => {
+                setCustomerFilter(e.target.value);
+                setPage(0);
+              }}
+            >
+              {customerOptions.map((c) => (
+                <MenuItem key={c.value} value={c.value}>
+                  {c.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* 4. Product Name */}
+          <TextField
+            size="small"
+            label="Product Name"
+            placeholder="Search product..."
+            value={productNameFilter}
+            onChange={(e) => {
+              setProductNameFilter(e.target.value);
+              setPage(0);
+            }}
+            sx={{ flex: '1 1 110px', minWidth: 100, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* 5. Product Code */}
+          <FormControl size="small" sx={{ flex: '0.9 1 100px', minWidth: 90, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
+            <InputLabel>Product Code</InputLabel>
+            <Select
+              label="Product Code"
+              value={productCodeFilter}
+              onChange={(e) => {
+                setProductCodeFilter(e.target.value);
+                setPage(0);
+              }}
+            >
+              {productOptions.map((p) => (
+                <MenuItem key={p.value} value={p.value}>
+                  {p.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* 6. Sales Person */}
+          <FormControl size="small" sx={{ flex: '0.9 1 100px', minWidth: 90, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
+            <InputLabel>Sales Person</InputLabel>
+            <Select
+              label="Sales Person"
+              value={salesPersonFilter}
+              onChange={(e) => {
+                setSalesPersonFilter(e.target.value);
+                setPage(0);
+              }}
+            >
+              {salesPersonOptions.map((sp) => (
+                <MenuItem key={sp.value} value={sp.value}>
+                  {sp.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* 7. Order Status */}
+          <FormControl size="small" sx={{ flex: '0.8 1 95px', minWidth: 85, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
+            <InputLabel>Order Status</InputLabel>
+            <Select
+              label="Order Status"
+              value={orderStatusFilter}
+              onChange={(e) => {
+                setOrderStatusFilter(e.target.value);
+                setPage(0);
+              }}
+            >
+              {orderStatusOptions.map((os) => (
+                <MenuItem key={os.value} value={os.value}>
+                  {os.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* 8. Include Completed */}
+          <FormControlLabel
+            sx={{ flex: '0 0 auto', m: 0 }}
+            control={
+              <Switch
+                checked={includeCompleted}
+                onChange={(e) => {
+                  setIncludeCompleted(e.target.checked);
+                  setPage(0);
+                }}
+                color="primary"
+                size="small"
+              />
+            }
+            label={
+              <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', whiteSpace: 'nowrap' }}>
+                Include Completed
+              </Typography>
+            }
+          />
+
+          {/* Clear Filters */}
+          <Button
+            size="small"
+            variant="outlined"
+            color="inherit"
+            startIcon={<RestartAltRounded fontSize="small" />}
+            onClick={handleResetFilters}
+            sx={{
+              flex: '0 0 auto',
+              minWidth: 105,
+              height: 38,
+              textTransform: 'none',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              borderRadius: '8px',
+              color: 'text.secondary',
+              borderColor: '#cbd5e1',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Clear Filters
+          </Button>
+        </Stack>
+      </Paper>
+
+      
       {/* Table Section */}
       <Paper variant="outlined" sx={{ borderRadius: '12px', overflow: 'hidden', bgcolor: '#ffffff' }}>
         <TableContainer sx={{ maxHeight: 650 }}>

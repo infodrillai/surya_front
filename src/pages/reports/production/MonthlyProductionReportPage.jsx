@@ -1,3 +1,5 @@
+import { fmtMoney as formatChartMoney } from '../../../lib/format';
+import ReportChart, { groupChartRows } from '../../../components/ReportChart';
 import {
   Alert,
   Box,
@@ -10,6 +12,7 @@ import {
   IconButton,
   InputAdornment,
   Paper,
+  InputLabel,
   Skeleton,
   Stack,
   Table,
@@ -23,6 +26,9 @@ import {
   TextField,
   Tooltip,
   Typography,
+  FormControl,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   AssignmentReturnOutlined,
@@ -36,6 +42,7 @@ import {
   LocalShippingOutlined,
   PrecisionManufacturingOutlined,
   RefreshRounded,
+  RestartAltRounded,
   SearchRounded,
   TuneOutlined,
 } from '@mui/icons-material';
@@ -1035,6 +1042,10 @@ export default function MonthlyProductionReportPage() {
         </Stack>
       </Stack>
 
+      <Box sx={{ mb: 2.5 }}>
+        <ReportChart title="Production cost by product" points={groupChartRows(filteredRows, (row) => row.product_name || row.product_code, (row) => row.total_production_cost)} format={formatChartMoney} />
+      </Box>
+
       {/* Date Validation Alert */}
       {isDateRangeInvalid && (
         <Alert severity="error" sx={{ mb: 3, borderRadius: '10px' }}>
@@ -1060,8 +1071,8 @@ export default function MonthlyProductionReportPage() {
             md: 'repeat(3, 1fr)',
             lg: 'repeat(6, 1fr)',
           },
-          gap: 1.5,
-          mb: 3,
+          gap: 1,
+          mb: 2,
         }}
       >
         <StatCard
@@ -1085,7 +1096,7 @@ export default function MonthlyProductionReportPage() {
           iconColor="#059669"
         />
         <StatCard
-          label="Total Dispatched"
+          label="Total Dispatch"
           value={
             uomTotals.qtyDispatched > 0 && uomTotals.mtrDispatched > 0
               ? `${fmtNum(uomTotals.qtyDispatched, 0)} QTY`
@@ -1101,7 +1112,7 @@ export default function MonthlyProductionReportPage() {
           iconColor="#2563eb"
         />
         <StatCard
-          label="Total Returned"
+          label="Total Return"
           value={
             uomTotals.qtyReturned > 0 && uomTotals.mtrReturned > 0
               ? `${fmtNum(uomTotals.qtyReturned, 0)} QTY`
@@ -1174,21 +1185,96 @@ export default function MonthlyProductionReportPage() {
         />
       </Box>
 
-      {/* Report Filters */}
+      {/* Report Filters - Single Line */}
       <Paper
         variant="outlined"
         sx={{
-          p: 2,
-          mb: 3,
-          borderRadius: '14px',
+          p: 1.5,
+          pt: 2,
+          pb: 1.5,
+          mb: 2.5,
+          borderRadius: '12px',
           bgcolor: '#ffffff',
           borderColor: '#dde5e3',
+          overflow: 'visible',
         }}
       >
-        <Stack spacing={1.5}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={1}
+          useFlexGap
+          sx={{
+            width: '100%',
+            flexWrap: 'wrap',
+            '& > *': { maxWidth: '100%' },
+          }}
+        >
+          {/* Quick Search */}
+          <TextField
+            placeholder="Quick search product name or code…"
+            value={productSearch}
+            onChange={(e) => setProductSearch(e.target.value)}
+            size="small"
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchRounded fontSize="small" sx={{ color: 'text.secondary' }} />
+                  </InputAdornment>
+                ),
+                endAdornment: productSearch ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setProductSearch('')}>
+                      <CloseRounded fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+              },
+            }}
+            sx={{ flex: '1.4 1 180px', minWidth: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* Filter 1: From Date */}
+          <TextField
+            type="date"
+            label="From Date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            size="small"
+            slotProps={{ inputLabel: { shrink: true } }}
+            error={Boolean(isDateRangeInvalid)}
+            sx={{ flex: '0 0 auto', width: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* Filter 2: To Date */}
+          <TextField
+            type="date"
+            label="To Date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            size="small"
+            slotProps={{ inputLabel: { shrink: true } }}
+            error={Boolean(isDateRangeInvalid)}
+            sx={{ flex: '0 0 auto', width: 140, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}
+          />
+
+          {/* Filter 3: Product Type */}
+          <FormControl size="small" sx={{ flex: '1 1 140px', minWidth: 120, '& .MuiOutlinedInput-root': { borderRadius: '8px', height: 38 } }}>
+            <InputLabel>Product Type</InputLabel>
+            <Select
+              label="Product Type"
+              value={productTypeFilter}
+              onChange={(e) => setProductTypeFilter(e.target.value)}
+            >
+              <MenuItem value="ALL">All Products</MenuItem>
+              <MenuItem value="PU">PU Products</MenuItem>
+              <MenuItem value="Belt">Belt Products</MenuItem>
+            </Select>
+          </FormControl>
 
           {/* Quick Date Presets */}
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flex: '0 0 auto' }}>
             <Chip
               label="This Month"
               size="small"
@@ -1199,7 +1285,7 @@ export default function MonthlyProductionReportPage() {
                 setFromDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`);
                 setToDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(end.getDate())}`);
               }}
-              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 600, height: 30 }}
             />
             <Chip
               label="Last 3 Months"
@@ -1211,121 +1297,32 @@ export default function MonthlyProductionReportPage() {
                 setFromDate(`${past.getFullYear()}-${pad(past.getMonth() + 1)}-01`);
                 setToDate(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
               }}
-              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
-            />
-            <Chip
-              label="All Records"
-              size="small"
-              onClick={() => {
-                setFromDate('');
-                setToDate('');
-              }}
-              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
-            />
-            <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-            <Chip
-              label="All Products"
-              size="small"
-              color={productTypeFilter === 'ALL' ? 'primary' : 'default'}
-              variant={productTypeFilter === 'ALL' ? 'filled' : 'outlined'}
-              onClick={() => setProductTypeFilter('ALL')}
-              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
-            />
-            <Chip
-              label="PU Products"
-              size="small"
-              color={productTypeFilter === 'PU' ? 'primary' : 'default'}
-              variant={productTypeFilter === 'PU' ? 'filled' : 'outlined'}
-              onClick={() => setProductTypeFilter('PU')}
-              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
-            />
-            <Chip
-              label="Belt Products"
-              size="small"
-              color={productTypeFilter === 'Belt' ? 'primary' : 'default'}
-              variant={productTypeFilter === 'Belt' ? 'filled' : 'outlined'}
-              onClick={() => setProductTypeFilter('Belt')}
-              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+              sx={{ cursor: 'pointer', fontSize: 11, fontWeight: 600, height: 30 }}
             />
           </Stack>
 
-          <Stack
-            direction={{ xs: 'column', md: 'row' }}
-            spacing={1.5}
-            sx={{ alignItems: { md: 'center' }, flexWrap: 'wrap', gap: 1 }}
+          {/* Clear Filters */}
+          <Button
+            size="small"
+            variant="outlined"
+            color="inherit"
+            startIcon={<RestartAltRounded fontSize="small" />}
+            onClick={handleResetFilters}
+            sx={{
+              flex: '0 0 auto',
+              minWidth: 110,
+              height: 38,
+              textTransform: 'none',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              borderRadius: '8px',
+              color: 'text.secondary',
+              borderColor: '#cbd5e1',
+              whiteSpace: 'nowrap',
+            }}
           >
-            {/* Filter 1: From Date */}
-            <Box sx={{ width: { xs: '100%', sm: 160 } }}>
-              <Typography variant="caption" sx={{ fontWeight: 650, color: 'text.secondary', mb: 0.3, display: 'block' }}>
-                From Date
-              </Typography>
-              <TextField
-                type="date"
-                value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
-                size="small"
-                fullWidth
-                slotProps={{ inputLabel: { shrink: true } }}
-                error={Boolean(isDateRangeInvalid)}
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: '10px', bgcolor: '#f8faf9' } }}
-              />
-            </Box>
-
-            {/* Filter 2: To Date */}
-            <Box sx={{ width: { xs: '100%', sm: 160 } }}>
-              <Typography variant="caption" sx={{ fontWeight: 650, color: 'text.secondary', mb: 0.3, display: 'block' }}>
-                To Date
-              </Typography>
-              <TextField
-                type="date"
-                value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
-                size="small"
-                fullWidth
-                slotProps={{ inputLabel: { shrink: true } }}
-                error={Boolean(isDateRangeInvalid)}
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: '10px', bgcolor: '#f8faf9' } }}
-              />
-            </Box>
-
-            {/* Filter 3: Product Search */}
-            <Box sx={{ flex: 1, minWidth: 200 }}>
-              <Typography variant="caption" sx={{ fontWeight: 650, color: 'text.secondary', mb: 0.3, display: 'block' }}>
-                Product Name / Code
-              </Typography>
-              <TextField
-                placeholder="Search product name or code…"
-                value={productSearch}
-                onChange={(e) => setProductSearch(e.target.value)}
-                size="small"
-                fullWidth
-                slotProps={{
-                  input: {
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <SearchRounded fontSize="small" sx={{ color: 'text.secondary' }} />
-                      </InputAdornment>
-                    ),
-                  },
-                }}
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: '10px', bgcolor: '#f8faf9' } }}
-              />
-            </Box>
-
-            {/* Reset Button */}
-            {isFiltered && (
-              <Box sx={{ alignSelf: { md: 'flex-end' }, pb: 0.3 }}>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={handleResetFilters}
-                  sx={{ borderRadius: '8px', fontSize: 12, color: 'text.secondary', borderColor: '#dde5e3' }}
-                >
-                  Reset
-                </Button>
-              </Box>
-            )}
-          </Stack>
+            Clear Filters
+          </Button>
         </Stack>
       </Paper>
 
